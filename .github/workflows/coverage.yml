@@ -1,0 +1,143 @@
+name: coverage
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  EMBREE_VERSION: "4.4.1"
+  LLVM_VERSION: "20"
+
+jobs:
+  pytest-coverage:
+    name: pytest-coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build
+
+      - uses: ./.github/actions/install-embree-linux
+        with:
+          version: ${{ env.EMBREE_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install project + dev deps
+        run: uv sync --group dev
+
+      - name: pytest (100% coverage required)
+        run: uv run --no-sync pytest --cov-fail-under=100 --cov-report=term-missing
+
+  cpp-tests:
+    name: cpp-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tooling + GTest
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libgtest-dev
+
+      - uses: ./.github/actions/install-embree-linux
+        with:
+          version: ${{ env.EMBREE_VERSION }}
+
+      - name: Configure
+        run: |
+          cmake -S x7_renderer -B x7_renderer/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DBUILD_TESTING=ON \
+            -DBUILD_PYTHON_MODULE=OFF
+
+      - name: Build
+        run: cmake --build x7_renderer/build
+
+      - name: Run tests
+        run: ctest --test-dir x7_renderer/build --output-on-failure
+
+  cpp-coverage:
+    name: cpp-coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM + build tooling + GTest
+        run: |
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | sudo tee /etc/apt/trusted.gpg.d/llvm.asc > /dev/null
+          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-${LLVM_VERSION} main" \
+            | sudo tee /etc/apt/sources.list.d/llvm.list
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang-${LLVM_VERSION} llvm-${LLVM_VERSION} \
+            cmake ninja-build libgtest-dev
+
+      - uses: ./.github/actions/install-embree-linux
+        with:
+          version: ${{ env.EMBREE_VERSION }}
+
+      - name: Configure (coverage instrumentation)
+        env:
+          CC: clang-${{ env.LLVM_VERSION }}
+          CXX: clang++-${{ env.LLVM_VERSION }}
+        run: |
+          cmake -S x7_renderer -B x7_renderer/build-coverage -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DBUILD_TESTING=ON \
+            -DBUILD_PYTHON_MODULE=OFF \
+            "-DCMAKE_CXX_FLAGS=-fprofile-instr-generate -fcoverage-mapping" \
+            "-DCMAKE_EXE_LINKER_FLAGS=-fprofile-instr-generate"
+
+      - name: Build
+        run: |
+          cmake --build x7_renderer/build-coverage --target x7_tests
+          cmake --build x7_renderer/build-coverage --target x7_error_tests
+
+      - name: Run tests
+        run: |
+          LLVM_PROFILE_FILE="$GITHUB_WORKSPACE/x7_tests.profraw" \
+            x7_renderer/build-coverage/tests/x7_tests
+          LLVM_PROFILE_FILE="$GITHUB_WORKSPACE/x7_error_tests.profraw" \
+            x7_renderer/build-coverage/tests/x7_error_tests
+
+      - name: Merge profile data
+        run: |
+          llvm-profdata-${LLVM_VERSION} merge -sparse \
+            "$GITHUB_WORKSPACE/x7_tests.profraw" \
+            "$GITHUB_WORKSPACE/x7_error_tests.profraw" \
+            -o "$GITHUB_WORKSPACE/x7_tests.profdata"
+
+      - name: Check C++ coverage (100% lines and functions required)
+        run: |
+          REPORT=$(llvm-cov-${LLVM_VERSION} report \
+            x7_renderer/build-coverage/tests/x7_tests \
+            x7_renderer/build-coverage/tests/x7_error_tests \
+            -instr-profile="$GITHUB_WORKSPACE/x7_tests.profdata" \
+            -ignore-filename-regex='tests/.*' \
+            --sources=x7_renderer/src)
+          echo "$REPORT"
+          # Check Missed Functions ($6) and Missed Lines ($9).
+          # Region/branch coverage is not enforced because LLVM counts
+          # each sub-expression in &&/|| as a separate branch, making
+          # 100% branch coverage impractical (dead safety clamps,
+          # assert-failure paths, structurally impossible short-circuit
+          # combinations).
+          MISSED=$(echo "$REPORT" | awk '/^TOTAL/ {print $6 + $9}')
+          if [ "$MISSED" -ne 0 ]; then
+            echo "C++ coverage gap: $MISSED missed function(s)/line(s)"
+            exit 1
+          fi
+          echo "C++ line and function coverage is 100%"

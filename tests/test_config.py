@@ -5,6 +5,8 @@ import pytest
 from openrct2_x7_renderer.config import (
     LoadError,
     as_array_or_wrap,
+    load_meshes,
+    load_preview,
     optional_bool,
     optional_int,
     optional_number,
@@ -41,6 +43,17 @@ def test_parse_config_rejects_non_object_root(tmp_path):
     p = tmp_path / "c.json"
     p.write_text("[1, 2, 3]")
     with pytest.raises(LoadError, match="not an object"):
+        parse_config(p)
+
+
+def test_parse_config_yaml_without_pyyaml_raises_load_error(tmp_path, monkeypatch):
+    import sys
+
+    p = tmp_path / "c.yaml"
+    p.write_text("a: 1\n")
+    # Poison the yaml entry in sys.modules so `import yaml` raises ImportError.
+    monkeypatch.setitem(sys.modules, "yaml", None)
+    with pytest.raises(LoadError, match="PyYAML is required"):
         parse_config(p)
 
 
@@ -136,6 +149,11 @@ def test_read_vector3_rejects_wrong_length():
         read_vector3("not a list")
 
 
+def test_read_vector3_rejects_non_numeric_element():
+    with pytest.raises(LoadError, match="not a number"):
+        read_vector3([1, "bad", 3])
+
+
 def test_as_array_or_wrap():
     assert as_array_or_wrap([1, 2]) == [1, 2]
     assert as_array_or_wrap("scalar") == ["scalar"]
@@ -144,3 +162,52 @@ def test_as_array_or_wrap():
         as_array_or_wrap(None)
     with pytest.raises(LoadError):
         as_array_or_wrap([])
+
+
+def test_load_meshes_returns_list(tmp_path):
+    # Write a minimal OBJ so load_mesh succeeds.
+    obj = tmp_path / "m.obj"
+    obj.write_text("v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n")
+    meshes = load_meshes({"meshes": [str(obj)]})
+    assert len(meshes) == 1
+
+
+def test_load_meshes_rejects_non_array():
+    with pytest.raises(LoadError, match='"meshes"'):
+        load_meshes({"meshes": "notanarray"})
+
+
+def test_load_meshes_rejects_non_string_path():
+    with pytest.raises(LoadError, match="not a string"):
+        load_meshes({"meshes": [42]})
+
+
+def test_load_meshes_missing_key():
+    with pytest.raises(LoadError):
+        load_meshes({})
+
+
+def test_load_preview_returns_none_when_absent():
+    assert load_preview({}) is None
+
+
+def test_load_preview_rejects_non_string():
+    with pytest.raises(LoadError, match='"preview"'):
+        load_preview({"preview": 123})
+
+
+def test_load_preview_raises_on_bad_file():
+    with pytest.raises(LoadError, match="Unable to open"):
+        load_preview({"preview": "/nonexistent/path/image.png"})
+
+
+def test_load_preview_success(tmp_path):
+    from openrct2_x7_renderer.image import write_png
+    from openrct2_x7_renderer.types import IndexedImage
+
+    img = IndexedImage.blank(4, 4)
+    png_path = tmp_path / "preview.png"
+    write_png(img, png_path)
+    result = load_preview({"preview": str(png_path)})
+    assert result is not None
+    assert result.width == 4

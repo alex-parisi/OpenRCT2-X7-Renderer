@@ -31,13 +31,15 @@ namespace RCTGen {
         Vector3 error{};
     };
 
-    constexpr Color color(std::uint8_t r, std::uint8_t g, std::uint8_t b) noexcept { return {r, g, b}; }
+    constexpr Color color(std::uint8_t r, std::uint8_t g, std::uint8_t b) noexcept {
+        return {r, g, b};
+    }
 
     Vector3 vector_from_color(Color c);
 
     Color color_from_vector(Vector3 vec);
 
-    PaletteResult palette_get_nearest(const Palette& palette, std::uint8_t region, Vector3 color);
+    PaletteResult PaletteGetNearest(const Palette& palette, std::uint8_t region, Vector3 color);
 
     Palette palette_rct2();
 } // namespace RCTGen

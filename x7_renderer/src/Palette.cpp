@@ -9,35 +9,36 @@
 
 namespace RCTGen {
     namespace {
-        float vector3_get_luma(Vector3 color) noexcept {
+        float Vector3GetLuma(Vector3 color) noexcept {
             return 0.299f * color.x + 0.587f * color.y + 0.114f * color.z;
         }
 
-        float srgb2linear(float x) noexcept {
+        float Srgb2linear(float x) noexcept {
             if (x <= 0.04045f) return x / 12.92f;
             return std::pow((x + 0.055f) / 1.055f, 2.4f);
         }
 
-        float linear2srgb(float x) noexcept {
+        float Linear2srgb(float x) noexcept {
             if (x <= 0.0031308f) return x * 12.92f;
             return 1.055f * std::pow(x, 1.0f / 2.4f) - 0.055f;
         }
     } // namespace
 
     Vector3 vector_from_color(Color color) {
-        return vector3(srgb2linear(static_cast<float>(color.r) / 255.0f),
-                       srgb2linear(static_cast<float>(color.g) / 255.0f),
-                       srgb2linear(static_cast<float>(color.b) / 255.0f));
+        return vector3(Srgb2linear(static_cast<float>(color.r) / 255.0f),
+                       Srgb2linear(static_cast<float>(color.g) / 255.0f),
+                       Srgb2linear(static_cast<float>(color.b) / 255.0f));
     }
 
     Color color_from_vector(Vector3 v) {
         const auto to_u8 = [](float x) -> std::uint8_t {
-            return static_cast<std::uint8_t>(std::floor(std::clamp(linear2srgb(x), 0.0f, 1.0f) * 255.0f + 0.4999f));
+            return static_cast<std::uint8_t>(std::floor(std::clamp(Linear2srgb(x), 0.0f, 1.0f) * 255.0f + 0.4999f));
         };
         return {to_u8(v.x), to_u8(v.y), to_u8(v.z)};
     }
 
-    PaletteResult palette_get_nearest(const Palette& palette, std::uint8_t region, Vector3 target) {
+    // NOLINTNEXTLINE(misc-use-internal-linkage)
+    PaletteResult PaletteGetNearest(const Palette& palette, std::uint8_t region, Vector3 target) {
         std::uint8_t nearest_index = palette.regions[region].start_indices[0];
         float minimum_error = std::numeric_limits<float>::infinity();
         int const num_subregions = palette.regions[region].subregions;
@@ -58,9 +59,10 @@ namespace RCTGen {
         PaletteResult result;
         result.index = nearest_index;
         if (palette.regions[region].remap) {
-            result.error =
-                vector3_sub(vector3(vector3_get_luma(target), 0.0f, 0.0f),
-                            vector3(vector3_get_luma(vector_from_color(palette.colors[nearest_index])), 0.0f, 0.0f));
+            std::uint8_t const start_index = palette.regions[region].start_indices[0];
+            Vector3 const matched_color = vector_from_color(palette.remap_colors[nearest_index - start_index]);
+            result.error = vector3_sub(vector3(Vector3GetLuma(target), 0.0f, 0.0f),
+                                       vector3(Vector3GetLuma(matched_color), 0.0f, 0.0f));
         } else {
             result.error = vector3_sub(target, vector_from_color(palette.colors[nearest_index]));
         }

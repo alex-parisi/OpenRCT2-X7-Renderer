@@ -1,10 +1,7 @@
 name: build-check
 
-# Smoke-test the Embree-vendored wheel build on every push/PR so we don't first
-# hear about platform-specific build breakage from a release tag. Mirrors the
-# publish.yml build matrix but drops version pinning and artifact upload -- this
-# run just has to compile and import cleanly (the cibuildwheel test-command in
-# pyproject.toml imports the extension).
+# Ensure that the Embree-vendored wheels build on every supported platform
+
 on:
   push:
     branches: [main]
@@ -30,10 +27,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Linux Embree is fetched inside the manylinux container by
-      # scripts/ci/install_embree_linux.sh (wired via [tool.cibuildwheel.linux]
-      # before-all). macOS/Windows build on the host, so fetch Embree here and
-      # export the paths cibuildwheel forwards into the build.
+      # Linux Embree is fetched inside the Linux container by
+      # scripts/ci/install_embree_linux.sh
+
       - name: Install Embree (macOS)
         if: runner.os == 'macOS'
         shell: bash
@@ -65,8 +61,7 @@ jobs:
           echo "EMBREE_ROOT=$GITHUB_WORKSPACE\\embree" >> "$GITHUB_ENV"
           echo "CMAKE_PREFIX_PATH=$GITHUB_WORKSPACE\\embree" >> "$GITHUB_ENV"
 
-      # Forward EMBREE_VERSION into the manylinux container for the
-      # before-all script.
+      # Forward EMBREE_VERSION into the Linux container
       - name: Configure cibuildwheel env passthrough (Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -74,5 +69,3 @@ jobs:
 
       - name: Build wheels
         uses: pypa/cibuildwheel@v3.4.1
-        # Per-platform config (build selection, Embree paths, repair commands)
-        # lives in [tool.cibuildwheel] in pyproject.toml.

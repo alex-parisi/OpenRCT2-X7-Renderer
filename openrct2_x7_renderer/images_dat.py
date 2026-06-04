@@ -1,6 +1,5 @@
 """
-OpenRCT2 `images.dat` (G1) blob writer, shared by the vehicle and scenery
-generators.
+OpenRCT2 `images.dat` (G1) blob writer
 """
 
 import struct
@@ -20,7 +19,7 @@ def write_images_dat(images: list[IndexedImage], out_path: Path) -> None:
       - Header (8 bytes): u32 num_entries, u32 total_pixel_data_size.
       - num_entries * 16-byte G1 elements:
           u32 offset (into the pixel data section),
-          i16 width, i16 height, i16 x_offset, i16 y_offset,
+          u16 width, u16 height, i16 x_offset, i16 y_offset,
           u16 flags, u16 zoom (we always write 0).
       - Concatenated pixel data: each image is width*height bytes of
         palette indices, with index 0 acting as transparent.
@@ -32,21 +31,22 @@ def write_images_dat(images: list[IndexedImage], out_path: Path) -> None:
     offsets: list[int] = []
     chunks: list[bytes] = []
     cur = 0
-    for img in images:
+    for i, img in enumerate(images):
+        if not (0 <= img.width <= 65535 and 0 <= img.height <= 65535):
+            raise ValueError(
+                f"Image {i}: width ({img.width}) and height ({img.height}) "
+                f"must fit in an unsigned 16-bit integer"
+            )
         pixels = img.pixels.tobytes()  # uint8 (H, W) row-major
-        assert len(pixels) == img.width * img.height, (
-            f"sprite pixel buffer size mismatch: "
-            f"got {len(pixels)}, expected {img.width}*{img.height}"
-        )
         offsets.append(cur)
         chunks.append(pixels)
         cur += len(pixels)
     total_pixel_size = cur
 
     elements = bytearray()
-    for img, offset in zip(images, offsets, strict=False):
+    for img, offset in zip(images, offsets, strict=True):
         elements += struct.pack(
-            "<IhhhhHH",
+            "<IHHhhHH",
             offset,
             int(img.width),
             int(img.height),
@@ -56,7 +56,7 @@ def write_images_dat(images: list[IndexedImage], out_path: Path) -> None:
             0,
         )
 
-    with open(out_path, "wb") as f:
+    with Path(out_path).open("wb") as f:
         f.write(struct.pack("<II", num, total_pixel_size))
         f.write(bytes(elements))
         f.writelines(chunks)

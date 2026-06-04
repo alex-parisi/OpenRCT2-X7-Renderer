@@ -1,10 +1,9 @@
 name: publish
 
-# Build the Embree-vendored wheels (cp311 + cp313 per platform) + an sdist,
-# then publish to PyPI. Triggered by a pushed `v*` tag (or manually, which
-# builds 0.0.0 and skips the upload). PyPI upload uses Trusted Publishing
-# (OIDC) -- configure this repo + workflow as a trusted publisher on PyPI, no
-# API token needed.
+# Builds the Embree-vendored wheels and sdist, then publishes to PyPI.
+# Triggered by a pushed `v*` tag
+# (or manually, which builds 0.0.0 and skips the upload)
+
 on:
   workflow_dispatch:
   push:
@@ -31,8 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Pin the project version from the tag (or 0.0.0 for manual runs) so the
-      # built wheels carry the release version.
+      # Pin the project version from the tag
       - name: Pin version from tag
         shell: bash
         run: |
@@ -43,10 +41,9 @@ jobs:
           fi
           python scripts/ci/set_version.py "$VERSION"
 
-      # Linux Embree is fetched inside the manylinux container by
-      # scripts/ci/install_embree_linux.sh (wired via [tool.cibuildwheel.linux]
-      # before-all). macOS/Windows build on the host, so fetch Embree here and
-      # export the paths cibuildwheel forwards into the build.
+      # Linux Embree is fetched inside the Linux container by
+      # scripts/ci/install_embree_linux.sh
+
       - name: Install Embree (macOS)
         if: runner.os == 'macOS'
         shell: bash
@@ -117,11 +114,11 @@ jobs:
     name: publish-to-pypi
     needs: [build-wheels, build-sdist]
     runs-on: ubuntu-latest
-    # Only publish for real release tags, never for manual 0.0.0 runs.
+    # Only publish for real release tags
     if: startsWith(github.ref, 'refs/tags/v')
     environment: pypi
     permissions:
-      id-token: write # OIDC token for Trusted Publishing
+      id-token: write
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4

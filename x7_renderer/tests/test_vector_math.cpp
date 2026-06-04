@@ -162,7 +162,9 @@ TEST(Matrix3, InverseIsIdentity) {
     ExpectMat3Near(matrix_mult(matrix_inverse(m), m), matrix_identity());
 }
 
-TEST(Matrix3, InverseOfIdentity) { ExpectMat3Near(matrix_inverse(matrix_identity()), matrix_identity()); }
+TEST(Matrix3, InverseOfIdentity) {
+    ExpectMat3Near(matrix_inverse(matrix_identity()), matrix_identity());
+}
 
 TEST(Matrix3, Transpose) {
     Matrix3 m = matrix(1, 2, 3, 4, 5, 6, 7, 8, 9);
@@ -269,9 +271,71 @@ TEST(Transform, RotationAndTranslation) {
 }
 
 TEST(Transform, Compose) {
-    // Two translations: T1=(1,0,0), T2=(0,2,0), compose = (1,2,0).
-    Transform const t1 = transform(matrix_identity(), vector3(1, 0, 0));
-    Transform const t2 = transform(matrix_identity(), vector3(0, 2, 0));
+    // rotate_x uses std::cos/sin (non-constexpr), preventing the compiler from
+    // folding transform_compose at compile time and hiding it from coverage.
+    Transform const t1 = transform(rotate_x(0.0f), vector3(1, 0, 0));
+    Transform const t2 = transform(rotate_x(0.0f), vector3(0, 2, 0));
     Transform const t12 = transform_compose(t1, t2);
     ExpectVec3Near(transform_vector(t12, vector3(0, 0, 0)), vector3(1, 2, 0));
 }
+
+// ---------------------------------------------------------------------------
+// Free-function wrappers
+// ---------------------------------------------------------------------------
+
+TEST(FreeFunctions, Vector2Wrappers) {
+    auto a = vector2(1.0f, 2.0f);
+    auto b = vector2(3.0f, 4.0f);
+    auto sum = vector2_add(a, b);
+    EXPECT_FLOAT_EQ(sum.x, 4.0f);
+    EXPECT_FLOAT_EQ(sum.y, 6.0f);
+    auto diff = vector2_sub(b, a);
+    EXPECT_FLOAT_EQ(diff.x, 2.0f);
+    EXPECT_FLOAT_EQ(diff.y, 2.0f);
+    auto scaled = vector2_mult(a, 3.0f);
+    EXPECT_FLOAT_EQ(scaled.x, 3.0f);
+    EXPECT_FLOAT_EQ(scaled.y, 6.0f);
+    EXPECT_FLOAT_EQ(vector2_dot(a, b), 11.0f);
+    EXPECT_NEAR(vector2_norm(vector2(3.0f, 4.0f)), 5.0f, kEps);
+}
+
+TEST(FreeFunctions, Vector3Wrappers) {
+    auto a = vector3(1.0f, 2.0f, 3.0f);
+    auto b = vector3(4.0f, 5.0f, 6.0f);
+    ExpectVec3Near(vector3_add(a, b), vector3(5, 7, 9));
+    ExpectVec3Near(vector3_sub(b, a), vector3(3, 3, 3));
+    ExpectVec3Near(vector3_mult(a, 2.0f), vector3(2, 4, 6));
+    EXPECT_FLOAT_EQ(vector3_dot(a, b), 32.0f);
+    ExpectVec3Near(vector3_cross(vector3(1, 0, 0), vector3(0, 1, 0)), vector3(0, 0, 1));
+    EXPECT_NEAR(vector3_norm(vector3(1, 2, 2)), 3.0f, kEps);
+    ExpectVec3Near(vector3_normalize(vector3(3, 4, 0)), vector3(0.6f, 0.8f, 0.0f));
+    ExpectVec3Near(vector3_from_scalar(2.0f), vector3(2, 2, 2));
+}
+
+TEST(FreeFunctions, MatrixDeterminant) {
+    EXPECT_NEAR(matrix_determinant(matrix_identity()), 1.0f, kEps);
+    Matrix3 const m = matrix(1, 2, 3, 0, 1, 4, 5, 6, 0);
+    EXPECT_NEAR(matrix_determinant(m), 1.0f, kEps);
+}
+
+TEST(Vector3, NormalizedZeroVectorReturnsZero) {
+    auto v = vector3(0.0f, 0.0f, 0.0f).normalized();
+    EXPECT_FLOAT_EQ(v.x, 0.0f);
+    EXPECT_FLOAT_EQ(v.y, 0.0f);
+    EXPECT_FLOAT_EQ(v.z, 0.0f);
+}
+
+// In debug builds matrix_inverse asserts on a singular matrix (precondition violation).
+// In release builds (NDEBUG) the assert is stripped and the function returns identity
+// as a safe fallback, so both behaviors are tested.
+#ifndef NDEBUG
+TEST(Matrix3, InverseOfSingularAssertsInDebug) {
+    Matrix3 const singular = matrix(0, 0, 0, 0, 0, 0, 0, 0, 0);
+    EXPECT_DEATH(matrix_inverse(singular), "");
+}
+#else
+TEST(Matrix3, InverseOfSingularReturnsIdentityInRelease) {
+    Matrix3 const singular = matrix(0, 0, 0, 0, 0, 0, 0, 0, 0);
+    ExpectMat3Near(matrix_inverse(singular), matrix_identity());
+}
+#endif

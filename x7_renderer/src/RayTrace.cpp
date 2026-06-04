@@ -7,21 +7,28 @@
 #include <cstdlib>
 #include <functional>
 #include <limits>
+#include <stdexcept>
+#include <string>
+#include <utility>
 
 #include "RayTrace.hpp"
 #include <embree4/rtcore.h>
 
 namespace RCTGen {
+    // Minimum tnear offset when re-tracing past a ghost mesh hit.
+    // Chosen to be larger than any floating-point rounding error in Embree's
+    // BVH traversal at the scene scales used (units-per-tile ~ 3-32).
+    constexpr float kGhostRayEpsilon = 1e-4f;
+
     namespace {
-        void rt_error(void* /*user_ptr*/, enum RTCError error, const char* str) {
-            std::fprintf(stderr, "error %d: %s\n", static_cast<int>(error), str);
-            std::exit(1);
+        [[noreturn]] void RtError(void* /*user_ptr*/, enum RTCError error, const char* str) {
+            throw std::runtime_error("Embree error " + std::to_string(static_cast<int>(error)) + ": " + str);
         }
 
-        void occlusionFilter(const struct RTCFilterFunctionNArguments* args) {
+        void OcclusionFilter(const struct RTCFilterFunctionNArguments* args) {
             // Check that packet size is 1 (guaranteed by Embree for scalar calls)
-            [[maybe_unused]] const unsigned int N = args->N;
-            assert(N == 1);
+            [[maybe_unused]] const unsigned int n = args->N;
+            assert(n == 1);
 
             // RTCRayN/RTCHitN are opaque incomplete types in Embree's API;
             // reinterpret_cast is the correct tool here.
@@ -32,57 +39,94 @@ namespace RCTGen {
         }
     } // namespace
 
-    Device device_init() {
-        Device device = rtcNewDevice(nullptr);
-        if (!device) {
-            std::fprintf(stderr, "error %d: cannot create device\n", static_cast<int>(rtcGetDeviceError(nullptr)));
-            std::exit(1);
+    DeviceHandle DeviceHandle::create() {
+        RTCDevice d = rtcNewDevice(nullptr);
+        if (!d) {
+            throw std::runtime_error("Embree: cannot create device (error "
+                                     + std::to_string(static_cast<int>(rtcGetDeviceError(nullptr))) + ")");
         }
-        rtcSetDeviceErrorFunction(device, rt_error, nullptr);
-        return device;
+        rtcSetDeviceErrorFunction(d, RtError, nullptr);
+        return DeviceHandle(d);
     }
 
-    void device_destroy(Device device) { rtcReleaseDevice(device); }
-
-    bool scene_is_mask(Scene& scene, int index) { return scene.mask.test(static_cast<std::size_t>(index)); }
-
-    bool scene_is_ghost(Scene& scene, int index) { return scene.ghost.test(static_cast<std::size_t>(index)); }
-
-    void scene_init(Scene& scene, Device device) {
-        scene.num_meshes = 0;
-        scene.mask.reset();
-        scene.ghost.reset();
-        scene.embree_device = device;
-        scene.embree_scene = rtcNewScene(device);
-        scene.x_max = -std::numeric_limits<float>::infinity();
-        scene.y_max = -std::numeric_limits<float>::infinity();
-        scene.z_max = -std::numeric_limits<float>::infinity();
-        scene.x_min = std::numeric_limits<float>::infinity();
-        scene.y_min = std::numeric_limits<float>::infinity();
-        scene.z_min = std::numeric_limits<float>::infinity();
+    DeviceHandle::~DeviceHandle() {
+        if (device_) rtcReleaseDevice(device_);
     }
 
-    void scene_finalize(Scene& scene) { rtcCommitScene(scene.embree_scene); }
+    DeviceHandle::DeviceHandle(DeviceHandle&& other) noexcept : device_(std::exchange(other.device_, nullptr)) {
+    }
 
-    void scene_destroy(Scene& scene) { rtcReleaseScene(scene.embree_scene); }
+    DeviceHandle& DeviceHandle::operator=(DeviceHandle&& other) noexcept {
+        if (this != &other) {
+            if (device_) rtcReleaseDevice(device_);
+            device_ = std::exchange(other.device_, nullptr);
+        }
+        return *this;
+    }
 
-    void scene_add_model(Scene& scene,
-                         const Mesh& mesh,
-                         const std::function<Vertex(Vector3, Vector3, bool)>& transform_fn,
-                         int flags) {
-        // Add mesh to list of meshes
-        assert(scene.num_meshes < kMaxMeshes);
+    bool scene_is_mask(const Scene& scene, int index) {
+        return scene.mask.test(static_cast<std::size_t>(index));
+    }
+
+    bool scene_is_ghost(const Scene& scene, int index) {
+        return scene.ghost.test(static_cast<std::size_t>(index));
+    }
+
+    Scene::Scene(RTCDevice device)
+        : x_min(std::numeric_limits<float>::infinity()), x_max(-std::numeric_limits<float>::infinity()),
+          y_min(std::numeric_limits<float>::infinity()), y_max(-std::numeric_limits<float>::infinity()),
+          z_min(std::numeric_limits<float>::infinity()), z_max(-std::numeric_limits<float>::infinity()),
+          embree_device(device), embree_scene(rtcNewScene(device)) {
+    }
+
+    Scene::~Scene() {
+        if (embree_scene) rtcReleaseScene(embree_scene);
+    }
+
+    Scene::Scene(Scene&& other) noexcept
+        : meshes(other.meshes), mask(other.mask), ghost(other.ghost), num_meshes(other.num_meshes), x_min(other.x_min),
+          x_max(other.x_max), y_min(other.y_min), y_max(other.y_max), z_min(other.z_min), z_max(other.z_max),
+          embree_device(other.embree_device), embree_scene(std::exchange(other.embree_scene, nullptr)) {
+    }
+
+    Scene& Scene::operator=(Scene&& other) noexcept {
+        if (this != &other) {
+            if (embree_scene) rtcReleaseScene(embree_scene);
+            meshes = other.meshes;
+            mask = other.mask;
+            ghost = other.ghost;
+            num_meshes = other.num_meshes;
+            x_min = other.x_min;
+            x_max = other.x_max;
+            y_min = other.y_min;
+            y_max = other.y_max;
+            z_min = other.z_min;
+            z_max = other.z_max;
+            embree_device = other.embree_device;
+            embree_scene = std::exchange(other.embree_scene, nullptr);
+        }
+        return *this;
+    }
+
+    void Scene::finalize() {
+        rtcCommitScene(embree_scene);
+    }
+
+    // NOLINTNEXTLINE(misc-use-internal-linkage)
+    void SceneAddModel(Scene& scene,
+                       const Mesh& mesh,
+                       const std::function<Vertex(Vector3, Vector3)>& transform_fn,
+                       MeshFlag flags) {
+        if (scene.num_meshes >= kMaxMeshes)
+            throw std::runtime_error("scene mesh limit exceeded (max " + std::to_string(kMaxMeshes) + ")");
         scene.meshes[scene.num_meshes] = &mesh;
-        if (flags & MESH_MASK) scene.mask.set(scene.num_meshes);
-        if (flags & MESH_GHOST) scene.ghost.set(scene.num_meshes);
+        if (has_flag(flags, MeshFlag::Mask)) scene.mask.set(scene.num_meshes);
+        if (has_flag(flags, MeshFlag::Ghost)) scene.ghost.set(scene.num_meshes);
         scene.num_meshes++;
 
         // Create Embree geometry
         RTCGeometry geom = rtcNewGeometry(scene.embree_device, RTC_GEOMETRY_TYPE_TRIANGLE);
-        if (geom == nullptr) {
-            std::fprintf(stderr, "Failed allocating geometry\n");
-            return;
-        }
+        if (geom == nullptr) throw std::runtime_error("Embree: failed to allocate geometry");
 
         rtcSetGeometryVertexAttributeCount(geom, 1);
         auto* vertices = static_cast<float*>(rtcSetNewGeometryBuffer(geom, RTC_BUFFER_TYPE_VERTEX, 0, RTC_FORMAT_FLOAT3,
@@ -92,19 +136,12 @@ namespace RCTGen {
         auto* indices = static_cast<unsigned int*>(rtcSetNewGeometryBuffer(
             geom, RTC_BUFFER_TYPE_INDEX, 0, RTC_FORMAT_UINT3, 3 * sizeof(unsigned int), mesh.faces.size()));
         if (!(vertices && indices && normals)) {
-            std::fprintf(stderr, "Failed allocating geometry buffer\n");
             rtcReleaseGeometry(geom);
-            return;
+            throw std::runtime_error("Embree: failed to allocate geometry buffer");
         }
 
-        // Flat-shading is a per-mesh property: pre-compute once instead of re-scanning
-        // all faces for every vertex (was O(V*F), now O(F+V)).
-        const bool flat_shaded = std::ranges::any_of(mesh.faces, [&mesh](const Face& f) {
-            return static_cast<bool>(mesh.materials[f.material].flags & MATERIAL_IS_FLAT_SHADED);
-        });
-
         for (std::size_t i = 0; i < mesh.vertices.size(); i++) {
-            Vertex const transformed_vertex = transform_fn(mesh.vertices[i], mesh.normals[i], flat_shaded);
+            Vertex const transformed_vertex = transform_fn(mesh.vertices[i], mesh.normals[i]);
             vertices[3 * i + 0] = transformed_vertex.vertex.x;
             vertices[3 * i + 1] = transformed_vertex.vertex.y;
             vertices[3 * i + 2] = transformed_vertex.vertex.z;
@@ -124,7 +161,7 @@ namespace RCTGen {
             indices[3 * i + 1] = static_cast<unsigned int>(mesh.faces[i].indices[1]);
             indices[3 * i + 2] = static_cast<unsigned int>(mesh.faces[i].indices[2]);
         }
-        rtcSetGeometryOccludedFilterFunction(geom, occlusionFilter);
+        rtcSetGeometryOccludedFilterFunction(geom, OcclusionFilter);
         rtcCommitGeometry(geom);
         // Add geometry to scene
         rtcAttachGeometry(scene.embree_scene, geom);
@@ -151,10 +188,12 @@ namespace RCTGen {
 
         hit.ghost_distance = rayhit.ray.tfar;
 
-        // If we hit ghost mesh, keep tracing
+        // If we hit ghost mesh, keep tracing (bounded by max mesh count).
+        int ghost_hops = 0;
         while ((rayhit.hit.geomID != RTC_INVALID_GEOMETRY_ID)
-               && scene_is_ghost(scene, static_cast<int>(rayhit.hit.geomID))) {
-            rayhit.ray.tnear = rayhit.ray.tfar + 0.0001f;
+               && scene_is_ghost(scene, static_cast<int>(rayhit.hit.geomID))
+               && ghost_hops++ < static_cast<int>(kMaxMeshes)) {
+            rayhit.ray.tnear = rayhit.ray.tfar + kGhostRayEpsilon;
             rayhit.ray.tfar = std::numeric_limits<float>::infinity();
             rayhit.hit.geomID = RTC_INVALID_GEOMETRY_ID;
             rayhit.hit.instID[0] = RTC_INVALID_GEOMETRY_ID;

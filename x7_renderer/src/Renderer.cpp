@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <array>
-#include <atomic>
 #include <cassert>
 #include <cmath>
 #include <cstdint>
@@ -11,6 +10,8 @@
 #include <limits>
 #include <numbers>
 #include <span>
+#include <stdexcept>
+#include <string>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -21,7 +22,6 @@
 #include "VectorMath.hpp"
 
 namespace RCTGen {
-    // 3.67 metres per tile
     constexpr float kSqrt2 = std::numbers::sqrt2_v<float>;
     constexpr float kSqrt3 = std::numbers::sqrt3_v<float>;
     constexpr float kSqrt6 = std::numbers::sqrt2_v<float> * std::numbers::sqrt3_v<float>;
@@ -31,100 +31,103 @@ namespace RCTGen {
     constexpr int kAaSamplesU = 4;
     constexpr int kAaSamplesV = 4;
     constexpr float kAaSampleWeight = 1.0f / (kAaSamplesU * kAaSamplesV);
+    // World-space depth tolerance used to classify samples as "inside" or "outside" an edge.
+    constexpr float kEdgeDepthTolerance = 4.0f;
+    // Fraction of the quantisation error propagated during Floyd-Steinberg dithering.
+    // Standard F-S uses 1.0, but 0.3 significantly reduces colour-banding artifacts
+    // in palette regions with coarse spacing (e.g. the remap and dark shadow regions).
+    constexpr float kDitherErrorScale = 0.3f;
 
     // Blank fragments used for bulk initialization
     constexpr Fragment kBlankFragment{
-        {0.0f, 0.0f, 0.0f}, 0.0f, 0.0f, 0, kFragmentUnused,
+        {0.0f, 0.0f, 0.0f}, 0.0f, 0.0f, MaterialFlag::None, kFragmentUnused,
     };
     // Subsamples start with depth=∞ so any real hit is "closer".
     constexpr Fragment kBlankSample{
-        {0.0f, 0.0f, 0.0f}, std::numeric_limits<float>::infinity(), 0.0f, 0, kFragmentUnused,
+        {0.0f, 0.0f, 0.0f}, std::numeric_limits<float>::infinity(), 0.0f, MaterialFlag::None, kFragmentUnused,
     };
 
-    std::array<Matrix3, 4> views{{
-        {{1, 0, 0, 0, 1, 0, 0, 0, 1}},
-        {{0, 0, 1, 0, 1, 0, -1, 0, 0}},
-        {{-1, 0, 0, 0, 1, 0, 0, 0, -1}},
-        {{0, 0, -1, 0, 1, 0, 1, 0, 0}},
-    }};
-
-    namespace {
-        // Spawn a batch of worker threads, dispatch `count` units of work,
-        // join.
-        template <class Fn> void parallel_for(int count, Fn&& fn) {
-            if (count <= 0) return;
-            const unsigned int worker_count = std::max(1u, std::thread::hardware_concurrency());
-            std::atomic<int> next{0};
-            auto worker = [&]() {
-                for (;;) {
-                    int const i = next.fetch_add(1, std::memory_order_relaxed);
-                    if (i >= count) break;
-                    fn(i);
-                }
-            };
-            std::vector<std::thread> threads;
-            threads.reserve(worker_count);
-            for (unsigned int i = 0; i < worker_count; ++i) threads.emplace_back(worker);
-            for (auto& t : threads) t.join();
-        }
-    } // namespace
-
-    void context_init(Context& ctx, std::span<const Light> lights, bool dither, Palette palette, float upt) {
-        ctx.rt_device = device_init();
+    // NOLINTNEXTLINE(misc-use-internal-linkage)
+    void ContextInit(Context& ctx, std::span<const Light> lights, bool dither, Palette palette, float upt) {
+        ctx.rt_device = DeviceHandle::create();
         ctx.lights.assign(lights.begin(), lights.end());
         ctx.dither = dither;
-        // Dimetric projection
+        // Dimetric (2:1 pixel aspect, ~30° elevation) projection matrix.
+        // Each entry is derived from (32/upt) * combinations of sqrt(2), sqrt(3), sqrt(6),
+        // matching OpenRCT2's fixed isometric camera geometry.
         ctx.projection = {32.0f / upt,           0.0f,         -32.0f / upt,         -16.0f / upt,
                           -16.0f * kSqrt6 / upt, -16.0f / upt, 16.0f * kSqrt3 / upt, -16.0f * kSqrt2 / upt,
                           16.0f * kSqrt3 / upt};
         ctx.palette = palette;
+
+        // Determine thread count once at context creation; reading the env var
+        // inside the render hot path would re-scan the environment every row.
+        constexpr unsigned int kMaxThreads = 256;
+        unsigned int worker_count = std::min(std::max(1u, std::thread::hardware_concurrency()), kMaxThreads);
+        if (const char* env = std::getenv("OPENRCT2_X7_NUM_THREADS")) {
+            const int n = std::atoi(env);
+            if (n > 0) worker_count = std::min(static_cast<unsigned int>(n), kMaxThreads);
+        }
+        ctx.thread_pool = std::make_unique<ThreadPool>(worker_count);
     }
 
-    void context_begin_render(Context& ctx) { scene_init(ctx.rt_scene, ctx.rt_device); }
+    void context_begin_render(Context& ctx) {
+        ctx.finalized = false;
+        ctx.rt_scene = std::make_unique<Scene>(ctx.rt_device.get());
+    }
 
-    void context_add_model(Context& ctx, const Mesh& mesh, Transform xform, int mask) {
-        scene_add_model(
-            ctx.rt_scene, mesh,
-            [xform](Vector3 v, Vector3 n, bool /*flat_shaded*/) -> Vertex {
+    void context_add_model(Context& ctx, const Mesh& mesh, Transform xform, MeshFlag mask) {
+        SceneAddModel(
+            *ctx.rt_scene, mesh,
+            [xform](Vector3 v, Vector3 n) -> Vertex {
                 return {transform_vector(xform, v), matrix_vector(xform.matrix, n).normalized()};
             },
             mask);
     }
 
-    void context_finalize_render(Context& ctx) { scene_finalize(ctx.rt_scene); }
+    void context_finalize_render(Context& ctx) {
+        ctx.rt_scene->finalize();
+        ctx.finalized = true;
+    }
 
-    void context_end_render(Context& ctx) { scene_destroy(ctx.rt_scene); }
+    void context_end_render(Context& ctx) {
+        ctx.rt_scene.reset();
+    }
 
-    void context_destroy(Context& ctx) { device_destroy(ctx.rt_device); }
+    void context_destroy(Context& ctx) {
+        ctx.rt_device = {};
+    }
 
     namespace {
-        float vector3_dot_clamped(Vector3 a, Vector3 b) { return std::max(vector3_dot(a, b), 0.0f); }
+        float Vector3DotClamped(Vector3 a, Vector3 b) {
+            return std::max(vector3_dot(a, b), 0.0f);
+        }
 
-        Vector3 shade_fragment(Scene& scene,
-                               Vector3 pos,
-                               Vector3 normal,
-                               Vector3 view,
-                               Vector3 color,
-                               Vector3 specular_color,
-                               float specular_exponent,
-                               Vector3 ambient_color,
-                               const std::vector<Light>& lights) {
-            Vector3 output_color = vector3(0, 0, 0);
+        Vector3 ShadeFragment(Scene& scene,
+                              Vector3 pos,
+                              Vector3 normal,
+                              Vector3 view,
+                              Vector3 color,
+                              Vector3 specular_color,
+                              float specular_exponent,
+                              Vector3 ambient_color,
+                              const std::vector<Light>& lights) {
+            Vector3 output_color = vector3(0, 0, 0); // NOLINT(misc-const-correctness)
 
             for (const auto& light : lights) {
                 if (light.shadow && scene_trace_occlusion_ray(scene, pos, light.direction)) continue;
-                if (light.type == LIGHT_HEMI) {
+                if (light.type == LightType::Hemi) {
                     float const diffuse_factor = 0.5f * light.intensity * (1 + vector3_dot(normal, light.direction));
                     output_color = vector3_add(vector3_mult(color, diffuse_factor), output_color);
-                } else if (light.type == LIGHT_DIFFUSE) {
-                    float const diffuse_factor = light.intensity * vector3_dot_clamped(normal, light.direction);
+                } else if (light.type == LightType::Diffuse) {
+                    float const diffuse_factor = light.intensity * Vector3DotClamped(normal, light.direction);
                     output_color = vector3_add(vector3_mult(color, diffuse_factor), output_color);
                 } else {
                     Vector3 const reflected_light_direction =
                         vector3_sub(vector3_mult(normal, 2.0f * vector3_dot(light.direction, normal)), light.direction);
                     float const specular_factor =
                         light.intensity
-                        * std::pow(vector3_dot_clamped(reflected_light_direction, view), specular_exponent);
+                        * std::pow(Vector3DotClamped(reflected_light_direction, view), specular_exponent);
                     output_color = vector3_add(vector3_mult(specular_color, specular_factor), output_color);
                 }
             }
@@ -133,7 +136,7 @@ namespace RCTGen {
 
         // AO jitter is derived from a hash of the hit point so the same world
         // surface point produces the same (r1, r2) on every render
-        inline std::uint32_t ao_hash_u32(std::uint32_t x) {
+        inline std::uint32_t AoHashU32(std::uint32_t x) {
             x ^= x >> 17;
             x *= 0xed5ad4bbu;
             x ^= x >> 11;
@@ -144,15 +147,17 @@ namespace RCTGen {
             return x;
         }
 
-        inline std::uint32_t ao_float_bits(float f) {
+        inline std::uint32_t AoFloatBits(float f) {
             std::uint32_t b;
             std::memcpy(&b, &f, sizeof(b));
             return b;
         }
 
-        inline float ao_hash_to_unit(std::uint32_t h) { return static_cast<float>(h >> 8) * (1.0f / 16777216.0f); }
+        inline float AoHashToUnit(std::uint32_t h) {
+            return static_cast<float>(h >> 8) * (1.0f / 16777216.0f);
+        }
 
-        bool scene_sample_point(
+        bool SceneSamplePoint(
             Scene& scene, Vector2 point, Matrix3 camera, const std::vector<Light>& lights, Fragment& fragment) {
             RayHit hit{};
             Vector3 view_vector = matrix_vector(camera, vector3(0, 0, -1));
@@ -164,17 +169,19 @@ namespace RCTGen {
                 const Material& material = mesh->materials[face.material];
 
                 // Check if this is a mask
-                if (scene_is_mask(scene, static_cast<int>(hit.mesh_index)) || material.flags & MATERIAL_IS_MASK) {
-                    fragment.color = vector3(0, 1, 0);
+                if (scene_is_mask(scene, static_cast<int>(hit.mesh_index))
+                    || has_flag(material.flags, MaterialFlag::IsMask)) {
+                    fragment.color = vector3(
+                        0.0f, 0.0f, 0.0f); // transparent black; region=kFragmentUnused means pixel is not written
                     fragment.depth = hit.distance;
-                    fragment.flags = static_cast<std::uint8_t>(material.flags | MATERIAL_IS_MASK);
+                    fragment.flags = material.flags | MaterialFlag::IsMask;
                     fragment.region = kFragmentUnused;
                     return true;
                 }
 
                 // Compute surface color
                 Vector3 color;
-                if (material.flags & MATERIAL_HAS_TEXTURE) {
+                if (has_flag(material.flags, MaterialFlag::HasTexture)) {
                     Vector2 const tex_coord =
                         vector2_add(vector2_add(vector2_mult(mesh->uvs[face.indices[0]], 1.0f - hit.u - hit.v),
                                                 vector2_mult(mesh->uvs[face.indices[1]], hit.u)),
@@ -184,41 +191,46 @@ namespace RCTGen {
                     color = material.color;
                 }
                 // Remappable colors should be rendered as grayscale
-                if (material.flags & MATERIAL_IS_REMAPPABLE) {
+                if (has_flag(material.flags, MaterialFlag::IsRemappable)) {
                     float const intensity = std::max({color.x, color.y, color.z});
                     color = vector3_from_scalar(intensity);
                 }
 
                 // Shade fragment
                 Vector3 const shaded_color =
-                    shade_fragment(scene, hit.position, hit.normal, view_vector, color, material.specular_color,
-                                   material.specular_exponent, material.ambient_color, lights);
+                    ShadeFragment(scene, hit.position, hit.normal, view_vector, color, material.specular_color,
+                                  material.specular_exponent, material.ambient_color, lights);
 
                 Vector3 const normal = hit.normal;
-                Vector3 tangent;
-                if (std::fabs(normal.x) > std::fabs(normal.y))
-                    tangent = vector3(normal.z, 0.0f, -normal.x)
-                              * (1.0f / std::sqrt(normal.x * normal.x + normal.z * normal.z));
-                else
-                    tangent = vector3(0.0f, -normal.z, normal.y)
-                              * (1.0f / std::sqrt(normal.y * normal.y + normal.z * normal.z));
-                Vector3 const bitangent = vector3_cross(normal, tangent);
+                // Guard against zero-length normals (degenerate geometry): the tangent frame
+                // construction divides by sqrt(x²+z²) or sqrt(y²+z²), which is 0 for a
+                // zero normal, producing NaN AO samples.  Skip AO instead (ao_factor = 1).
+                const float normal_len_sq = normal.x * normal.x + normal.y * normal.y + normal.z * normal.z;
 
                 float ao_factor = 1.0f;
-                if (!(material.flags & MATERIAL_NO_AO)) {
-                    std::uint32_t hp = ao_hash_u32(ao_float_bits(hit.position.x));
-                    hp = ao_hash_u32(hp ^ ao_float_bits(hit.position.y));
-                    hp = ao_hash_u32(hp ^ ao_float_bits(hit.position.z));
+                if (!has_flag(material.flags, MaterialFlag::NoAO) && normal_len_sq > 0.0f) {
+                    Vector3 tangent; // NOLINT(misc-const-correctness)
+                    if (std::fabs(normal.x) > std::fabs(normal.y))
+                        tangent = vector3(normal.z, 0.0f, -normal.x)
+                                  * (1.0f / std::sqrt(normal.x * normal.x + normal.z * normal.z));
+                    else
+                        tangent = vector3(0.0f, -normal.z, normal.y)
+                                  * (1.0f / std::sqrt(normal.y * normal.y + normal.z * normal.z));
+                    Vector3 const bitangent = vector3_cross(normal, tangent);
+                    std::uint32_t hp = AoHashU32(AoFloatBits(hit.position.x));
+                    hp = AoHashU32(hp ^ AoFloatBits(hit.position.y));
+                    hp = AoHashU32(hp ^ AoFloatBits(hit.position.z));
                     std::uint32_t not_occluded_samples = 0;
                     for (int i = 0; i < kAoSamplesU; i++)
                         for (int j = 0; j < kAoSamplesV; j++) {
-                            std::uint32_t const h = ao_hash_u32(hp ^ static_cast<std::uint32_t>(i * 73856093)
-                                                                ^ static_cast<std::uint32_t>(j * 19349663));
-                            float const r1 = ao_hash_to_unit(h);
-                            float const r2 = ao_hash_to_unit(ao_hash_u32(h));
+                            std::uint32_t const h = AoHashU32(hp ^ static_cast<std::uint32_t>(i * 73856093)
+                                                              ^ static_cast<std::uint32_t>(j * 19349663));
+                            float const r1 = AoHashToUnit(h);
+                            float const r2 = AoHashToUnit(AoHashU32(h));
                             float const theta =
                                 2.0f * std::numbers::pi_v<float> * ((static_cast<float>(i) + r1) / kAoSamplesU);
-                            float const phi = std::asin(1.0f - (static_cast<float>(j) + r2) / kAoSamplesV);
+                            // acos(1-u) gives cos(phi) uniform in [0,1], i.e. uniform solid-angle sampling.
+                            float const phi = std::acos(1.0f - (static_cast<float>(j) + r2) / kAoSamplesV);
 
                             Vector3 const local_sample_dir = vector3(std::cos(phi) * std::sin(theta),
                                                                      std::cos(phi) * std::cos(theta), std::sin(phi));
@@ -234,7 +246,7 @@ namespace RCTGen {
                 fragment.color = vector3_mult(shaded_color, ao_factor);
                 fragment.depth = hit.distance;
                 fragment.ghost_depth = hit.ghost_distance;
-                fragment.flags = static_cast<std::uint8_t>(material.flags);
+                fragment.flags = material.flags;
                 fragment.region = material.region;
                 return true;
             }
@@ -247,10 +259,12 @@ namespace RCTGen {
             const Material* material{}; // nullptr on miss
             float depth{};
             bool is_mask{};
-            explicit operator bool() const noexcept { return material != nullptr; }
+            explicit operator bool() const noexcept {
+                return material != nullptr;
+            }
         };
 
-        MaterialSample scene_sample_material(Scene& scene, Vector2 point, Matrix3 camera) {
+        MaterialSample SceneSampleMaterial(Scene& scene, Vector2 point, Matrix3 camera) {
             RayHit hit{};
             Vector3 const view_vector = matrix_vector(camera, vector3(0, 0, -1));
             if (scene_trace_ray(scene, matrix_vector(camera, vector3(point.x, point.y, -512)),
@@ -260,24 +274,23 @@ namespace RCTGen {
                 const Material* material = &mesh->materials[face.material];
                 return {hit.ghost_distance, material, hit.distance,
                         scene_is_mask(scene, static_cast<int>(hit.mesh_index))
-                            || static_cast<bool>(material->flags & MATERIAL_IS_MASK)};
+                            || has_flag(material->flags, MaterialFlag::IsMask)};
             }
             return {hit.ghost_distance};
         }
 
-        Rect rect(int xl, int xu, int yl, int yu) {
-            Rect result = {xl, yl, xu, yu};
-            return result;
+        Rect MakeRect(int x_lower, int x_upper, int y_lower, int y_upper) {
+            return {x_lower, y_lower, x_upper, y_upper};
         }
 
-        Rect rect_enclose_point(Rect r, float x, float y) {
-            return rect(static_cast<int>(std::min(static_cast<float>(r.x_lower), std::floor(x))),
-                        static_cast<int>(std::max(static_cast<float>(r.x_upper), std::ceil(x))),
-                        static_cast<int>(std::min(static_cast<float>(r.y_lower), std::floor(y))),
-                        static_cast<int>(std::max(static_cast<float>(r.y_upper), std::ceil(y))));
+        Rect RectEnclosePoint(Rect r, float x, float y) {
+            return MakeRect(static_cast<int>(std::min(static_cast<float>(r.x_lower), std::floor(x))),
+                            static_cast<int>(std::max(static_cast<float>(r.x_upper), std::ceil(x))),
+                            static_cast<int>(std::min(static_cast<float>(r.y_lower), std::floor(y))),
+                            static_cast<int>(std::max(static_cast<float>(r.y_upper), std::ceil(y))));
         }
 
-        Rect scene_get_bounds(Scene& scene, Matrix3 camera) {
+        Rect SceneGetBounds(Scene& scene, Matrix3 camera) {
             const std::array<Vector3, 8> bounding_points = {{
                 vector3(scene.x_min, scene.y_min, scene.z_min),
                 vector3(scene.x_max, scene.y_min, scene.z_min),
@@ -289,12 +302,13 @@ namespace RCTGen {
                 vector3(scene.x_max, scene.y_max, scene.z_max),
             }};
 
-            Rect bounds = rect(
-                static_cast<int>(std::floor(bounding_points[0].x)), static_cast<int>(std::ceil(bounding_points[0].x)),
-                static_cast<int>(std::floor(bounding_points[0].y)), static_cast<int>(std::ceil(bounding_points[0].y)));
+            Vector3 const first_screen = matrix_vector(camera, bounding_points[0]);
+            Rect bounds =
+                MakeRect(static_cast<int>(std::floor(first_screen.x)), static_cast<int>(std::ceil(first_screen.x)),
+                         static_cast<int>(std::floor(first_screen.y)), static_cast<int>(std::ceil(first_screen.y)));
             for (const Vector3& bp : bounding_points) {
                 Vector3 const screen_point = matrix_vector(camera, bp);
-                bounds = rect_enclose_point(bounds, screen_point.x, screen_point.y);
+                bounds = RectEnclosePoint(bounds, screen_point.x, screen_point.y);
             }
             bounds.x_lower--;
             bounds.x_upper++;
@@ -303,30 +317,30 @@ namespace RCTGen {
             return bounds;
         }
 
-        Rect framebuffer_get_bounds(Framebuffer& framebuffer) {
+        Rect FramebufferGetBounds(Framebuffer& framebuffer) {
             bool found_pixel = false;
             Rect bounds{};
             for (std::uint32_t y = 0; y < framebuffer.height; y++)
                 for (std::uint32_t x = 0; x < framebuffer.width; x++) {
                     if (framebuffer.fragments[x + y * framebuffer.width].region != kFragmentUnused) {
                         if (found_pixel)
-                            bounds = rect_enclose_point(bounds, static_cast<float>(x), static_cast<float>(y));
+                            bounds = RectEnclosePoint(bounds, static_cast<float>(x), static_cast<float>(y));
                         else {
-                            bounds = rect(static_cast<int>(x), static_cast<int>(x) + 1, static_cast<int>(y),
-                                          static_cast<int>(y) + 1);
+                            bounds = MakeRect(static_cast<int>(x), static_cast<int>(x) + 1, static_cast<int>(y),
+                                              static_cast<int>(y) + 1);
                             found_pixel = true;
                         }
                     }
                 }
             if (!found_pixel)
-                return rect(0, 0, 0, 0);
+                return MakeRect(0, 0, 0, 0);
             else
                 return bounds;
         }
 
-        Image image_from_framebuffer(Framebuffer& framebuffer, Palette& palette, bool dither) {
+        Image ImageFromFramebuffer(Framebuffer& framebuffer, Palette& palette, bool dither) {
             Image image;
-            Rect const bounding_box = framebuffer_get_bounds(framebuffer);
+            Rect const bounding_box = FramebufferGetBounds(framebuffer);
             image.width = static_cast<std::uint16_t>(1 + bounding_box.x_upper - bounding_box.x_lower);
             image.height = static_cast<std::uint16_t>(1 + bounding_box.y_upper - bounding_box.y_lower);
             // World origin (0, 0, 0) always projects to engine screen (0, 0)
@@ -346,24 +360,24 @@ namespace RCTGen {
                     fragment.color = vector_from_color(color_from_vector(fragment.color));
                     if (fragment.region != kFragmentUnused) {
                         PaletteResult const pr =
-                            palette_get_nearest(palette, fragment.region & kRegionMask, fragment.color);
+                            PaletteGetNearest(palette, fragment.region & kRegionMask, fragment.color);
                         image.pixels[static_cast<std::size_t>(x - bounding_box.x_lower)
                                      + static_cast<std::size_t>(y - bounding_box.y_lower) * image.width] = pr.index;
                         if (dither) {
                             // Distribute error onto neighbouring points (Floyd-Steinberg, serpentine)
                             const std::array<std::array<int, 2>, 4> points = {
                                 {{x + step, y}, {x - step, y + 1}, {x, y + 1}, {x + step, y + 1}}};
-                            constexpr std::array<float, 4> weights = {7.0f / 16.0f, 3.0f / 16.0f, 5.0f / 16.0f,
-                                                                      1.0f / 16.0f};
+                            constexpr std::array<float, 4> kWeights = {7.0f / 16.0f, 3.0f / 16.0f, 5.0f / 16.0f,
+                                                                       1.0f / 16.0f};
                             for (int i = 0; i < 4; i++) {
                                 const int px = points[i][0], py = points[i][1];
                                 if (px >= 0 && std::cmp_less(px, framebuffer.width) && py >= 0
                                     && std::cmp_less(py, framebuffer.height)
-                                    && (!(fragment.flags & MATERIAL_NO_BLEED)
-                                        || (framebuffer.fragments[px + py * framebuffer.width].flags
-                                            & MATERIAL_NO_BLEED))) {
+                                    && (!has_flag(fragment.flags, MaterialFlag::NoBleed)
+                                        || has_flag(framebuffer.fragments[px + py * framebuffer.width].flags,
+                                                    MaterialFlag::NoBleed))) {
                                     framebuffer.fragments[px + py * framebuffer.width].color =
-                                        vector3_add(vector3_mult(pr.error, 0.3f * weights[i]),
+                                        vector3_add(vector3_mult(pr.error, kDitherErrorScale * kWeights[i]),
                                                     framebuffer.fragments[px + py * framebuffer.width].color);
                                 }
                             }
@@ -374,14 +388,19 @@ namespace RCTGen {
             return image;
         }
 
-        Image context_render_view_internal(Context& ctx, Matrix3 view, bool silhouette) {
+        Image ContextRenderViewInternal(Context& ctx, Matrix3 view, bool silhouette) {
+            assert(ctx.finalized && "context_render_view called before context_finalize_render");
             Matrix3 const camera = matrix_mult(ctx.projection, view);
 
-            Rect const bounds = scene_get_bounds(ctx.rt_scene, camera);
+            Rect const bounds = SceneGetBounds(*ctx.rt_scene, camera);
 
             Framebuffer framebuffer;
-            framebuffer.width = static_cast<std::uint16_t>(bounds.x_upper - bounds.x_lower + 1);
-            framebuffer.height = static_cast<std::uint16_t>(bounds.y_upper - bounds.y_lower);
+            framebuffer.width = static_cast<std::uint32_t>(bounds.x_upper - bounds.x_lower + 1);
+            framebuffer.height = static_cast<std::uint32_t>(bounds.y_upper - bounds.y_lower + 1);
+            if (framebuffer.width > 16384 || framebuffer.height > 16384)
+                throw std::runtime_error("Scene bounds too large to render (" + std::to_string(framebuffer.width) + "x"
+                                         + std::to_string(framebuffer.height)
+                                         + " pixels; max 16384x16384). Check units_per_tile or scene scale.");
             // Half-pixel shift on both axes
             framebuffer.offset =
                 vector2(static_cast<float>(bounds.x_lower) - 0.5f, static_cast<float>(bounds.y_lower) - 0.5f);
@@ -404,17 +423,17 @@ namespace RCTGen {
                         vector2_add(vector2(static_cast<float>(x), static_cast<float>(y)), framebuffer.offset);
 
                     // Test center
-                    std::uint8_t flags = 0;
+                    MaterialFlag flags = MaterialFlag::None;
                     int region = kFragmentUnused;
                     float depth = std::numeric_limits<float>::infinity();
                     bool mask = false;
-                    auto center = scene_sample_material(ctx.rt_scene, sample_point, camera_inverse);
+                    auto center = SceneSampleMaterial(*ctx.rt_scene, sample_point, camera_inverse);
                     float const ghost_depth = center.ghost_depth;
                     if (center) {
                         mask = center.is_mask;
                         region = mask ? kFragmentUnused : center.material->region;
-                        flags = static_cast<std::uint8_t>(center.material->flags);
-                        if (center.material->flags & MATERIAL_IS_VISIBLE_MASK) mask = true;
+                        flags = center.material->flags;
+                        if (has_flag(center.material->flags, MaterialFlag::IsVisibleMask)) mask = true;
                         depth = center.depth;
                     }
                     // Compute subsamples
@@ -428,16 +447,16 @@ namespace RCTGen {
                             Fragment& sub_frag = subsamples[i + j * kAaSamplesU];
 
                             if (!silhouette) {
-                                scene_sample_point(ctx.rt_scene, vector2_add(sample_point, subsample_point),
-                                                   camera_inverse, transformed_lights, sub_frag);
+                                SceneSamplePoint(*ctx.rt_scene, vector2_add(sample_point, subsample_point),
+                                                 camera_inverse, transformed_lights, sub_frag);
                             } else {
-                                auto sub = scene_sample_material(
-                                    ctx.rt_scene, vector2_add(sample_point, subsample_point), camera_inverse);
+                                auto sub = SceneSampleMaterial(
+                                    *ctx.rt_scene, vector2_add(sample_point, subsample_point), camera_inverse);
                                 sub_frag.ghost_depth = sub.ghost_depth;
                                 if (sub) {
                                     sub_frag.color = vector3(0.5f, 0.5f, 0.5f);
                                     sub_frag.region = sub.is_mask ? kFragmentUnused : sub.material->region;
-                                    sub_frag.flags = static_cast<std::uint8_t>(sub.material->flags);
+                                    sub_frag.flags = sub.material->flags;
                                     sub_frag.depth = sub.depth;
                                 }
                             }
@@ -448,7 +467,8 @@ namespace RCTGen {
                     float min_depth = std::numeric_limits<float>::infinity();
                     for (int i = 0; i < kAaSamplesU * kAaSamplesV; i++) {
                         if (subsamples[i].depth < min_depth
-                            && (subsamples[i].flags & (MATERIAL_BACKGROUND_AA | MATERIAL_BACKGROUND_AA_DARK))) {
+                            && (has_flag(subsamples[i].flags, MaterialFlag::BackgroundAA)
+                                || has_flag(subsamples[i].flags, MaterialFlag::BackgroundAADark))) {
                             front_background_aa_sample = i;
                             min_depth = subsamples[i].depth;
                         }
@@ -456,14 +476,14 @@ namespace RCTGen {
 
                     // If there exists a sample forward of the center point with background AA enabled,
                     // use that instead of the center point
-                    if (front_background_aa_sample != -1 && (min_depth < ghost_depth - 4 || mask)) {
+                    if (front_background_aa_sample != -1 && (min_depth < ghost_depth - kEdgeDepthTolerance || mask)) {
                         // Count samples that fall inside the presumed edge
                         int inside_samples = 0;
                         for (int i = 0; i < kAaSamplesU * kAaSamplesV; i++) {
-                            if (!(subsamples[i].depth > min_depth + 4
+                            if (!(subsamples[i].depth > min_depth + kEdgeDepthTolerance
                                   || (subsamples[i].region == kFragmentUnused
-                                      && !(subsamples[i].flags & MATERIAL_IS_MASK))
-                                  || (subsamples[i].flags & MATERIAL_IS_VISIBLE_MASK)))
+                                      && !has_flag(subsamples[i].flags, MaterialFlag::IsMask))
+                                  || has_flag(subsamples[i].flags, MaterialFlag::IsVisibleMask)))
                                 inside_samples++;
                         }
                         // If more than three samples found, use the forwardmost point
@@ -479,57 +499,64 @@ namespace RCTGen {
                     // If this is a background pixel, there is no need to compute the color
                     if (std::cmp_equal(region, kFragmentUnused)) continue;
 
-                    if (flags & (MATERIAL_BACKGROUND_AA | MATERIAL_BACKGROUND_AA_DARK)) {
+                    if (has_flag(flags, MaterialFlag::BackgroundAA)
+                        || has_flag(flags, MaterialFlag::BackgroundAADark)) {
                         // Count samples that fall outside the presumed edge
                         Vector3 color = vector3(0, 0, 0);
                         float weight = 0;
                         float total_weight = 0;
                         for (int i = 0; i < kAaSamplesU * kAaSamplesV; i++) {
-                            if ((!(subsamples[i].flags & MATERIAL_NO_BLEED) || (flags & MATERIAL_NO_BLEED))
-                                && !((subsamples[i].ghost_depth <= depth + 4 && subsamples[i].depth > depth + 4))) {
-                                if (!(subsamples[i].depth > depth + 4
+                            if ((!has_flag(subsamples[i].flags, MaterialFlag::NoBleed)
+                                 || has_flag(flags, MaterialFlag::NoBleed))
+                                && !((subsamples[i].ghost_depth <= depth + kEdgeDepthTolerance
+                                      && subsamples[i].depth > depth + kEdgeDepthTolerance))) {
+                                if (!(subsamples[i].depth > depth + kEdgeDepthTolerance
                                       || (subsamples[i].region == kFragmentUnused
-                                          && !(subsamples[i].flags & MATERIAL_IS_MASK))
-                                      || (subsamples[i].flags & MATERIAL_IS_VISIBLE_MASK))) {
+                                          && !has_flag(subsamples[i].flags, MaterialFlag::IsMask))
+                                      || has_flag(subsamples[i].flags, MaterialFlag::IsVisibleMask))) {
                                     color = vector3_add(color, vector3_mult(subsamples[i].color, kAaSampleWeight));
                                     weight += kAaSampleWeight;
                                 }
                                 total_weight += kAaSampleWeight;
                             }
                         }
-                        color = vector3_mult(color, 1.0f / total_weight);
-                        if (flags & MATERIAL_BACKGROUND_AA_DARK)
-                            framebuffer.fragments[x + y * framebuffer.width].color =
-                                vector3_mult(color, 0.5f + 0.5f * (weight / total_weight));
-                        else
-                            framebuffer.fragments[x + y * framebuffer.width].color = color;
+                        if (total_weight > 0.0f) {
+                            color = vector3_mult(color, 1.0f / total_weight);
+                            if (has_flag(flags, MaterialFlag::BackgroundAADark))
+                                framebuffer.fragments[x + y * framebuffer.width].color =
+                                    vector3_mult(color, 0.5f + 0.5f * (weight / total_weight));
+                            else
+                                framebuffer.fragments[x + y * framebuffer.width].color = color;
+                        }
                     } else {
                         Vector3 color = vector3(0, 0, 0);
                         float weight = 0.0f;
                         for (int i = 0; i < kAaSamplesU * kAaSamplesV; i++) {
                             if (subsamples[i].region != kFragmentUnused
-                                && (!(subsamples[i].flags & MATERIAL_NO_BLEED) || (flags & MATERIAL_NO_BLEED))) {
+                                && (!has_flag(subsamples[i].flags, MaterialFlag::NoBleed)
+                                    || has_flag(flags, MaterialFlag::NoBleed))) {
                                 color = vector3_add(color, vector3_mult(subsamples[i].color, kAaSampleWeight));
                                 weight += kAaSampleWeight;
                             }
                         }
-                        framebuffer.fragments[x + y * framebuffer.width].color = vector3_mult(color, 1.0f / weight);
+                        if (weight > 0.0f)
+                            framebuffer.fragments[x + y * framebuffer.width].color = vector3_mult(color, 1.0f / weight);
                     }
                 }
             };
 
-            parallel_for(framebuffer.height, render_row);
+            ctx.thread_pool->run(static_cast<int>(framebuffer.height), render_row);
 
             // Convert to indexed color
-            return image_from_framebuffer(framebuffer, ctx.palette, ctx.dither);
+            return ImageFromFramebuffer(framebuffer, ctx.palette, ctx.dither);
         }
     } // namespace
 
     Image context_render_view(Context& ctx, Matrix3 view) {
-        return context_render_view_internal(ctx, view, /*silhouette=*/false);
+        return ContextRenderViewInternal(ctx, view, /*silhouette=*/false);
     }
 
     Image context_render_silhouette(Context& ctx, Matrix3 view) {
-        return context_render_view_internal(ctx, view, /*silhouette=*/true);
+        return ContextRenderViewInternal(ctx, view, /*silhouette=*/true);
     }
 } // namespace RCTGen
