@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Embree-backed isometric renderer that turns meshes into OpenRCT2 palette-indexed sprites."
 readme = "README.md"
 requires-python = ">=3.11"
-license = "GPL-2.0-or-later"
+license = "GPL-3.0-or-later"
 authors = [{ name = "Alex Parisi", email = "alex@atparisi.com" }]
 dependencies = [
     "numpy>=1.26",
@@ -44,7 +44,8 @@ warn_redundant_casts = true
 warn_unused_configs = true
 
 [build-system]
-requires = ["scikit-build-core>=0.10", "pybind11>=2.12"]
+# pybind11>=3.0 is required to build the cp314 extension (2.x tops out at 3.13).
+requires = ["scikit-build-core>=0.11", "pybind11>=3.0"]
 build-backend = "scikit_build_core.build"
 
 [tool.scikit-build]
@@ -55,7 +56,7 @@ build-dir = "build/{wheel_tag}"
 
 # Embree-vendored wheels for distribution on PyPI.
 [tool.cibuildwheel]
-build = "cp311-* cp313-*"
+build = "cp311-* cp312-* cp313-* cp314-*"
 build-frontend = "build"
 skip = ["*-musllinux*", "*_i686", "*-win32"]
 

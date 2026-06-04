@@ -114,7 +114,7 @@ jobs:
 
       # pybind11 headers for bindings.cpp.
       - name: Install pybind11
-        run: pip install "pybind11>=2.12"
+        run: pip install "pybind11>=3.0"
 
       - name: Install Embree
         run: |

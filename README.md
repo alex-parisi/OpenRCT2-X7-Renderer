@@ -69,3 +69,8 @@ Each element is `u32 offset, i16 width, i16 height, i16 x_offset,
 i16 y_offset, u16 flags, u16 zoom`. `flags = 0x0001` (`G1_FLAG_BMP`) indicates
 raw indexed pixel data — palette index 0 is transparent. RLE compression
 (`flags = 0x0008`) would be more compact but is not implemented.
+
+## License
+
+GPL-3.0-or-later. The distributed wheels bundle Embree and TBB (Apache-2.0);
+their license texts ship alongside.
