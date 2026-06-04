@@ -22,7 +22,7 @@ def _parse_images_dat(data: bytes):
     elements = []
     elem_base = 8
     for i in range(num):
-        off, w, h, xo, yo, flags, zoom = struct.unpack_from("<IhhhhHH", data, elem_base + i * 16)
+        off, w, h, xo, yo, flags, zoom = struct.unpack_from("<IHHhhHH", data, elem_base + i * 16)
         elements.append(dict(offset=off, w=w, h=h, x=xo, y=yo, flags=flags, zoom=zoom))
     pixel_base = elem_base + num * 16
     return num, total, elements, data[pixel_base:]
@@ -68,3 +68,12 @@ def test_images_dat_offsets_are_monotonic(tmp_path):
     offsets = [e["offset"] for e in elements]
     assert offsets == sorted(offsets)
     assert offsets[0] == 0
+
+
+def test_images_dat_rejects_oversized_dimensions(tmp_path):
+    import pytest
+
+    out = tmp_path / "images.dat"
+    oversized = _img(65536, 1, 0, 0, 0)
+    with pytest.raises(ValueError, match="unsigned 16-bit"):
+        write_images_dat([oversized], out)

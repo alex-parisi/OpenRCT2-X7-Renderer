@@ -1,29 +1,22 @@
 """
-Shared command-line scaffolding for the vehicle and scenery generators.
-
-Both front-ends parse the same flags, read a config file, resolve the light
-rig, and build a render Context whose camera scale comes from the loaded
-object. `run_cli` wraps that common flow (and its error handling) so each
-entry point only has to say how to load and export its own object type.
+Shared command-line scaffolding for object generators.
 """
 
 import argparse
 import sys
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
-from .config import parse_config
+from .config import LoadError, parse_config
+from .constants import TILE_SIZE
 from .lights import default_lights, load_lights
 from .ray_trace import Context
 from .types import Light
 
-# Test mode renders at 8x zoom for fast eyeballing of a single viewpoint.
 TEST_ZOOM = 0.125
 
-# Given the parsed CLI args, the raw config dict, and the resolved lights,
-# load and export the object. Raising LoadError (or any exception) is turned
-# into a non-zero exit code with an "Error: ..." message.
-RenderFn = Callable[[argparse.Namespace, dict, list[Light]], None]
+RenderFn = Callable[[argparse.Namespace, dict[str, Any], list[Light]], None]
 
 
 def parse_cli_args(prog: str, argv: list[str] | None) -> argparse.Namespace:
@@ -39,7 +32,7 @@ def parse_cli_args(prog: str, argv: list[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def output_directory_of(root: dict) -> Path:
+def output_directory_of(root: dict[str, Any]) -> Path:
     """The config's `output_directory`, or the current directory if unset."""
     out = root.get("output_directory")
     return Path(out) if isinstance(out, str) else Path(".")
@@ -47,9 +40,10 @@ def output_directory_of(root: dict) -> Path:
 
 def make_context(lights: list[Light], units_per_tile: float, test: bool) -> Context:
     """Build a render Context whose camera scale is driven by the object's
-    configured `units_per_tile`. Test mode zooms in for fast iteration."""
+    configured `units_per_tile`. Test mode scales ``upt`` down by ``TEST_ZOOM``
+    (0.125×), zooming in to show material detail in a single-viewpoint preview."""
     upt = TEST_ZOOM * units_per_tile if test else units_per_tile
-    return Context.make(lights=lights, dither=True, upt=upt)
+    return Context(lights=lights, dither=True, upt=upt)
 
 
 def run_cli(prog: str, argv: list[str] | None, render: RenderFn) -> int:
@@ -65,7 +59,7 @@ def run_cli(prog: str, argv: list[str] | None, render: RenderFn) -> int:
         root = parse_config(args.input)
         lights = load_lights(root["lights"]) if "lights" in root else default_lights()
         render(args, root, lights)
-    except Exception as e:  # LoadError is the expected case; report any failure cleanly
+    except (LoadError, OSError, ValueError, RuntimeError) as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
 

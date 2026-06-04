@@ -106,9 +106,7 @@ def test_assign_faces_to_tiles_by_nearest_xz():
     # Two faces, one near tile A (x=0,z=0), one near tile B (x=10,z=0).
     near_a = _tri_mesh([[0, 0, 0], [1, 0, 0], [0, 0, 1]])
     near_b = _tri_mesh([[10, 0, 0], [11, 0, 0], [10, 0, 1]])
-    merged = combine_model_world(
-        [near_a, near_b], _model([MeshFrame(0)], [MeshFrame(1)])
-    )
+    merged = combine_model_world([near_a, near_b], _model([MeshFrame(0)], [MeshFrame(1)]))
     tiles = np.array([[0.0, 0.0], [10.0, 0.0]])
     assignment = assign_faces_to_tiles(merged, tiles)
     assert assignment.tolist() == [0, 1]
@@ -119,6 +117,13 @@ def test_assign_uses_xz_not_y():
     high = _tri_mesh([[0, 100, 0], [1, 100, 0], [0, 100, 1]])
     tiles = np.array([[0.0, 0.0], [50.0, 0.0]])
     assert assign_faces_to_tiles(high, tiles).tolist() == [0]
+
+
+def test_assign_faces_to_tiles_empty_mesh():
+    empty = Mesh.empty()
+    tiles = np.array([[0.0, 0.0]])
+    result = assign_faces_to_tiles(empty, tiles)
+    assert result.shape == (0,)
 
 
 def test_subset_mesh_remaps_vertices_tightly():

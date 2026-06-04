@@ -16,7 +16,16 @@ dist/
 
 # CMake dev / IDE build trees + clangd cache
 x7_renderer/build/
+x7_renderer/build-*/
 x7_renderer/cmake-build-*/
 x7_renderer/.cache/
 
 *.egg-info/
+
+# Coverage / profiling artifacts
+.coverage
+*.profraw
+*.profdata
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/

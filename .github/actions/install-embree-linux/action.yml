@@ -1,0 +1,25 @@
+name: Install Embree (Linux x86_64)
+description: Download and configure Embree from GitHub releases for Linux x86_64
+
+inputs:
+  version:
+    description: Embree version (e.g. "4.4.1")
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install Embree
+      shell: bash
+      run: |
+        EMB="$GITHUB_WORKSPACE/embree"
+        BASE="https://github.com/RenderKit/embree/releases/download"
+        curl -fL -o /tmp/embree.tar.gz \
+          "$BASE/v${{ inputs.version }}/embree-${{ inputs.version }}.x86_64.linux.tar.gz"
+        mkdir -p "$EMB"
+        tar -xzf /tmp/embree.tar.gz -C "$EMB"
+        EMBREE_CMAKE_DIR=$(find "$EMB" -type d -path '*/cmake/embree-*' | head -n1)
+        test -n "$EMBREE_CMAKE_DIR" || { echo "embree cmake dir not found"; exit 1; }
+        echo "EMBREE_ROOT=$EMB"             >> "$GITHUB_ENV"
+        echo "embree_DIR=$EMBREE_CMAKE_DIR" >> "$GITHUB_ENV"
+        echo "LD_LIBRARY_PATH=$EMB/lib64"   >> "$GITHUB_ENV"

@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <vector>
 
@@ -11,14 +12,10 @@
 #include "Mesh.hpp"
 #include "Palette.hpp"
 #include "RayTrace.hpp"
+#include "ThreadPool.hpp"
 #include "VectorMath.hpp"
 
 namespace RCTGen {
-    inline constexpr int kRenderWidth = 255;
-    inline constexpr int kRenderHeight = 256;
-    inline constexpr int kRenderPixels = kRenderWidth * kRenderHeight;
-    inline constexpr int kUnitsPerTile = 4096;
-    inline constexpr int kUnitsPerPixel = 128;
     inline constexpr std::uint8_t kFragmentUnused = 255;
     inline constexpr std::uint8_t kRegionMask = 0x7;
     inline constexpr std::size_t kMaxRegions = 8;
@@ -34,26 +31,26 @@ namespace RCTGen {
         Vector3 color{};
         float depth{};
         float ghost_depth{};
-        std::uint8_t flags{};
+        MaterialFlag flags{}; // full 16-bit flags; avoids silent truncation of IsFlatShaded (bit 8)
         std::uint8_t region{};
     };
 
-    enum LightType : std::uint16_t {
-        LIGHT_HEMI = 0,
-        LIGHT_DIFFUSE = 1,
-        LIGHT_SPECULAR = 2,
+    enum class LightType : std::uint16_t {
+        Hemi = 0,
+        Diffuse = 1,
+        Specular = 2,
     };
 
     struct Light {
-        std::uint16_t type{};
+        LightType type{LightType::Hemi};
         std::uint16_t shadow{};
         Vector3 direction{};
         float intensity{};
     };
 
     struct Framebuffer {
-        std::uint16_t width{};
-        std::uint16_t height{};
+        std::uint32_t width{};
+        std::uint32_t height{};
         Vector2 offset{};
         std::vector<Fragment> fragments{};
     };
@@ -61,21 +58,28 @@ namespace RCTGen {
     struct Context {
         std::vector<Light> lights{};
         bool dither{};
+        bool finalized{};
         Matrix3 projection{};
-        Device rt_device{};
-        Scene rt_scene{};
+        DeviceHandle rt_device;
+        std::unique_ptr<Scene> rt_scene;
         Palette palette{};
+        std::unique_ptr<ThreadPool> thread_pool;
     };
 
-    extern std::array<Matrix3, 4> views;
+    inline constexpr std::array<Matrix3, 4> views{{
+        {{1, 0, 0, 0, 1, 0, 0, 0, 1}},
+        {{0, 0, 1, 0, 1, 0, -1, 0, 0}},
+        {{-1, 0, 0, 0, 1, 0, 0, 0, -1}},
+        {{0, 0, -1, 0, 1, 0, 1, 0, 0}},
+    }};
 
-    void context_init(Context& ctx, std::span<const Light> lights, bool dither, Palette palette, float upt);
+    void ContextInit(Context& ctx, std::span<const Light> lights, bool dither, Palette palette, float upt);
 
     void context_destroy(Context& ctx);
 
     void context_begin_render(Context& ctx);
 
-    void context_add_model(Context& ctx, const Mesh& mesh, Transform xform, int mask = 0);
+    void context_add_model(Context& ctx, const Mesh& mesh, Transform xform, MeshFlag mask = MeshFlag::None);
 
     Image context_render_view(Context& ctx, Matrix3 view);
 

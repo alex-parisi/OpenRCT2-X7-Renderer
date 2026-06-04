@@ -19,6 +19,23 @@ namespace {
 } // namespace
 
 // ---------------------------------------------------------------------------
+// MaterialFlag operators
+// ---------------------------------------------------------------------------
+
+TEST(MaterialFlagOps, CompoundAssignAndComplement) {
+    MaterialFlag f = MaterialFlag::None;
+    f |= MaterialFlag::HasTexture;
+    EXPECT_EQ(f, MaterialFlag::HasTexture);
+    f |= MaterialFlag::NoAO;
+    EXPECT_EQ(f, MaterialFlag::HasTexture | MaterialFlag::NoAO);
+
+    volatile auto runtime_flag = MaterialFlag::HasTexture;
+    MaterialFlag const neg = ~static_cast<MaterialFlag>(runtime_flag);
+    EXPECT_FALSE(has_flag(neg, MaterialFlag::HasTexture));
+    EXPECT_TRUE(has_flag(neg, MaterialFlag::NoAO));
+}
+
+// ---------------------------------------------------------------------------
 // Single-pixel texture
 // ---------------------------------------------------------------------------
 
@@ -122,6 +139,36 @@ TEST(TextureSample, WrapNegativeUV) {
     EXPECT_NEAR(at_half.x, at_neg.x, kEps);
     EXPECT_NEAR(at_half.y, at_neg.y, kEps);
     EXPECT_NEAR(at_half.z, at_neg.z, kEps);
+}
+
+// ---------------------------------------------------------------------------
+// Zero-dimension safety clamps
+// ---------------------------------------------------------------------------
+
+TEST(TextureSample, ZeroWidthReturnsBlack) {
+    std::vector<Vector3> buf{{0.5f, 0.5f, 0.5f}};
+    Texture const tex{0, 1, std::span<const Vector3>(buf)};
+    Vector3 const s = texture_sample(tex, vector2(0.5f, 0.0f));
+    EXPECT_NEAR(s.x, 0.0f, kEps);
+    EXPECT_NEAR(s.y, 0.0f, kEps);
+    EXPECT_NEAR(s.z, 0.0f, kEps);
+}
+
+TEST(TextureSample, ZeroHeightReturnsBlack) {
+    std::vector<Vector3> buf{{0.25f, 0.75f, 0.125f}};
+    Texture const tex{1, 0, std::span<const Vector3>(buf)};
+    Vector3 const s = texture_sample(tex, vector2(0.0f, 0.5f));
+    EXPECT_NEAR(s.x, 0.0f, kEps);
+    EXPECT_NEAR(s.y, 0.0f, kEps);
+    EXPECT_NEAR(s.z, 0.0f, kEps);
+}
+
+TEST(TextureSample, EmptyPixelsReturnsBlack) {
+    Texture const tex{4, 4, std::span<const Vector3>{}};
+    Vector3 const s = texture_sample(tex, vector2(0.5f, 0.5f));
+    EXPECT_NEAR(s.x, 0.0f, kEps);
+    EXPECT_NEAR(s.y, 0.0f, kEps);
+    EXPECT_NEAR(s.z, 0.0f, kEps);
 }
 
 // ---------------------------------------------------------------------------

@@ -14,18 +14,44 @@
         "BUILD_PYTHON_MODULE": "OFF",
         "CMAKE_PREFIX_PATH": "/opt/homebrew"
       }
+    },
+    {
+      "name": "coverage",
+      "displayName": "Coverage (LLVM source-based)",
+      "description": "Debug build with LLVM source-based coverage instrumentation. Produces .profraw files when tests run; use scripts/coverage.sh to generate the HTML report.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-coverage",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "BUILD_TESTING": "ON",
+        "BUILD_PYTHON_MODULE": "OFF",
+        "CMAKE_PREFIX_PATH": "/opt/homebrew",
+        "CMAKE_C_COMPILER": "/opt/homebrew/opt/llvm/bin/clang",
+        "CMAKE_CXX_COMPILER": "/opt/homebrew/opt/llvm/bin/clang++",
+        "CMAKE_CXX_FLAGS": "-fprofile-instr-generate -fcoverage-mapping",
+        "CMAKE_EXE_LINKER_FLAGS": "-fprofile-instr-generate"
+      }
     }
   ],
   "buildPresets": [
     {
       "name": "dev",
       "configurePreset": "dev"
+    },
+    {
+      "name": "coverage",
+      "configurePreset": "coverage"
     }
   ],
   "testPresets": [
     {
       "name": "dev",
       "configurePreset": "dev",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "coverage",
+      "configurePreset": "coverage",
       "output": { "outputOnFailure": true }
     }
   ]

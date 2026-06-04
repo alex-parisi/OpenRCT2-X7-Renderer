@@ -1,8 +1,8 @@
 /// bindings.cpp
 
-// pybind11 surface for OpenRCT2-VehicleGenerator.
+// pybind11 surface for OpenRCT2-X7-Renderer.
 //
-// Exposes the Embree-backed renderer kernel
+// Exposes the Embree-backed renderer kernel.
 // Python builds scenes from numpy arrays, the C++ side does ray tracing.
 
 #include <pybind11/numpy.h>
@@ -23,9 +23,9 @@
 #include "VectorMath.hpp"
 
 namespace py = pybind11;
-using namespace RCTGen;
 
 namespace {
+    using namespace RCTGen;
 
     Matrix3 matrix3_from_array(const py::array_t<float, py::array::c_style | py::array::forcecast>& arr) {
         if (arr.ndim() != 2 || arr.shape(0) != 3 || arr.shape(1) != 3)
@@ -65,8 +65,8 @@ namespace {
             for (auto h : lights_py) {
                 auto const o = py::reinterpret_borrow<py::object>(h);
                 Light L{};
-                L.type = o.attr("type").cast<std::uint16_t>();
-                L.shadow = o.attr("shadow").cast<std::uint16_t>();
+                L.type = static_cast<LightType>(o.attr("type").cast<std::uint16_t>());
+                L.shadow = o.attr("shadow").cast<bool>() ? 1 : 0;
                 L.intensity = o.attr("intensity").cast<float>();
                 auto const dir =
                     o.attr("direction").cast<py::array_t<float, py::array::c_style | py::array::forcecast>>();
@@ -75,7 +75,7 @@ namespace {
             }
 
             palette_ = palette_rct2();
-            context_init(ctx_, std::span<const Light>(lights_), dither, palette_, upt);
+            ContextInit(ctx_, std::span<const Light>(lights_), dither, palette_, upt);
         }
 
         ~RenderContext() {
@@ -95,6 +95,7 @@ namespace {
             context_begin_render(ctx_);
             owned_meshes_.clear();
             scene_open_ = true;
+            finalized_ = false;
         }
 
         void end_render() {
@@ -102,11 +103,13 @@ namespace {
             context_end_render(ctx_);
             owned_meshes_.clear();
             scene_open_ = false;
+            finalized_ = false;
         }
 
         void finalize_render() {
             if (!scene_open_) throw std::runtime_error("finalize_render before begin_render");
             context_finalize_render(ctx_);
+            finalized_ = true;
         }
 
         void add_mesh(const py::array_t<float, py::array::c_style | py::array::forcecast>& vertices,
@@ -119,6 +122,7 @@ namespace {
                       const py::array_t<float, py::array::c_style | py::array::forcecast>& translation,
                       int mask) {
             if (!scene_open_) throw std::runtime_error("add_mesh before begin_render");
+            if (finalized_) throw std::runtime_error("add_mesh after finalize_render");
 
             // Shape checks.
             if (vertices.ndim() != 2 || vertices.shape(1) != 3) throw std::invalid_argument("vertices must be (N, 3)");
@@ -132,6 +136,7 @@ namespace {
 
             const auto N = vertices.shape(0);
             const auto F = faces.shape(0);
+            const auto M = static_cast<std::size_t>(py::len(materials));
 
             // Allocate owned slot in-place to keep pointer addresses stable.
             owned_meshes_.push_back(std::make_unique<OwnedMesh>());
@@ -154,6 +159,16 @@ namespace {
             auto fi = faces.unchecked<2>();
             auto fm = face_materials.unchecked<1>();
             for (py::ssize_t i = 0; i < F; i++) {
+                if (static_cast<std::size_t>(fm(i)) >= M)
+                    throw std::invalid_argument(
+                        "face_materials[" + std::to_string(i) + "] = " + std::to_string(fm(i))
+                        + " is out of range (num materials = " + std::to_string(M) + ")");
+                if (static_cast<std::size_t>(fi(i, 0)) >= static_cast<std::size_t>(N)
+                    || static_cast<std::size_t>(fi(i, 1)) >= static_cast<std::size_t>(N)
+                    || static_cast<std::size_t>(fi(i, 2)) >= static_cast<std::size_t>(N))
+                    throw std::invalid_argument(
+                        "face[" + std::to_string(i) + "] has a vertex index out of range (num vertices = "
+                        + std::to_string(N) + ")");
                 om->faces[i].material = static_cast<std::size_t>(fm(i));
                 om->faces[i].indices[0] = static_cast<std::size_t>(fi(i, 0));
                 om->faces[i].indices[1] = static_cast<std::size_t>(fi(i, 1));
@@ -161,19 +176,18 @@ namespace {
             }
 
             // Materials.
-            const auto M = static_cast<std::size_t>(py::len(materials));
             om->materials.resize(M);
             om->texture_pixels.resize(M);
             for (std::size_t i = 0; i < M; i++) {
                 auto const d = materials[i].cast<py::dict>();
                 Material& mat = om->materials[i];
-                mat.flags = d["flags"].cast<std::uint16_t>();
+                mat.flags = static_cast<MaterialFlag>(d["flags"].cast<std::uint16_t>());
                 mat.region = d["region"].cast<std::uint8_t>();
                 mat.specular_exponent = d["specular_exponent"].cast<float>();
                 mat.specular_color = vec3_from_seq(d["specular_color"].cast<py::sequence>());
                 mat.ambient_color = vec3_from_seq(d["ambient_color"].cast<py::sequence>());
 
-                if (mat.flags & MATERIAL_HAS_TEXTURE) {
+                if (has_flag(mat.flags, MaterialFlag::HasTexture)) {
                     auto const tex = d["texture"].cast<py::array_t<float, py::array::c_style | py::array::forcecast>>();
                     if (tex.ndim() != 3 || tex.shape(2) != 3)
                         throw std::invalid_argument("texture must be (H, W, 3) float32 linear RGB");
@@ -201,7 +215,7 @@ namespace {
 
             // Apply transform.
             Transform const xform = transform(matrix3_from_array(matrix), vec3_from_array(translation));
-            context_add_model(ctx_, om->mesh, xform, mask);
+            context_add_model(ctx_, om->mesh, xform, static_cast<MeshFlag>(mask));
         }
 
         py::dict render_view(const py::array_t<float, py::array::c_style | py::array::forcecast>& view) {
@@ -215,6 +229,7 @@ namespace {
     private:
         py::dict render_internal(const py::array_t<float, py::array::c_style | py::array::forcecast>& view,
                                  bool silhouette) {
+            if (!finalized_) throw std::runtime_error("render_view/render_silhouette before finalize_render");
             Matrix3 const m = matrix3_from_array(view);
             // Release the GIL for the ray-tracing hot path so a Python worker
             // thread keeps its host UI responsive while a render is in flight
@@ -246,29 +261,49 @@ namespace {
         std::vector<Light> lights_;
         std::vector<std::unique_ptr<OwnedMesh>> owned_meshes_;
         bool scene_open_ = false;
+        bool finalized_ = false;
     };
 
 } // namespace
 
+namespace {
+    py::array_t<std::uint8_t> get_palette_rgb() {
+        using namespace RCTGen;
+        Palette const pal = palette_rct2();
+        py::array_t<std::uint8_t> out({256, 3});
+        auto buf = out.mutable_unchecked<2>();
+        for (int i = 0; i < 256; ++i) {
+            buf(i, 0) = pal.colors[i].r;
+            buf(i, 1) = pal.colors[i].g;
+            buf(i, 2) = pal.colors[i].b;
+        }
+        return out;
+    }
+} // namespace
+
 PYBIND11_MODULE(_x7_renderer, m) {
-    m.doc() = "Native renderer (Embree) for OpenRCT2-VehicleGenerator.";
+    using namespace RCTGen;
+    m.doc() = "Native renderer (Embree) for OpenRCT2-X7-Renderer.";
+
+    m.def("palette_rgb", &get_palette_rgb,
+          "Return the native RCT2 palette as a (256, 3) uint8 array.");
 
     // Re-export constants the Python wrapper uses to construct material
     // dicts.
-    m.attr("MATERIAL_HAS_TEXTURE") = MATERIAL_HAS_TEXTURE;
-    m.attr("MATERIAL_IS_REMAPPABLE") = MATERIAL_IS_REMAPPABLE;
-    m.attr("MATERIAL_IS_MASK") = MATERIAL_IS_MASK;
-    m.attr("MATERIAL_NO_AO") = MATERIAL_NO_AO;
-    m.attr("MATERIAL_BACKGROUND_AA") = MATERIAL_BACKGROUND_AA;
-    m.attr("MATERIAL_BACKGROUND_AA_DARK") = MATERIAL_BACKGROUND_AA_DARK;
-    m.attr("MATERIAL_IS_VISIBLE_MASK") = MATERIAL_IS_VISIBLE_MASK;
-    m.attr("MATERIAL_NO_BLEED") = MATERIAL_NO_BLEED;
-    m.attr("MATERIAL_IS_FLAT_SHADED") = MATERIAL_IS_FLAT_SHADED;
-    m.attr("MESH_MASK") = MESH_MASK;
-    m.attr("MESH_GHOST") = MESH_GHOST;
-    m.attr("LIGHT_HEMI") = static_cast<int>(LIGHT_HEMI);
-    m.attr("LIGHT_DIFFUSE") = static_cast<int>(LIGHT_DIFFUSE);
-    m.attr("LIGHT_SPECULAR") = static_cast<int>(LIGHT_SPECULAR);
+    m.attr("MATERIAL_HAS_TEXTURE") = static_cast<int>(MaterialFlag::HasTexture);
+    m.attr("MATERIAL_IS_REMAPPABLE") = static_cast<int>(MaterialFlag::IsRemappable);
+    m.attr("MATERIAL_IS_MASK") = static_cast<int>(MaterialFlag::IsMask);
+    m.attr("MATERIAL_NO_AO") = static_cast<int>(MaterialFlag::NoAO);
+    m.attr("MATERIAL_BACKGROUND_AA") = static_cast<int>(MaterialFlag::BackgroundAA);
+    m.attr("MATERIAL_BACKGROUND_AA_DARK") = static_cast<int>(MaterialFlag::BackgroundAADark);
+    m.attr("MATERIAL_IS_VISIBLE_MASK") = static_cast<int>(MaterialFlag::IsVisibleMask);
+    m.attr("MATERIAL_NO_BLEED") = static_cast<int>(MaterialFlag::NoBleed);
+    m.attr("MATERIAL_IS_FLAT_SHADED") = static_cast<int>(MaterialFlag::IsFlatShaded);
+    m.attr("MESH_MASK") = static_cast<int>(MeshFlag::Mask);
+    m.attr("MESH_GHOST") = static_cast<int>(MeshFlag::Ghost);
+    m.attr("LIGHT_HEMI") = static_cast<int>(LightType::Hemi);
+    m.attr("LIGHT_DIFFUSE") = static_cast<int>(LightType::Diffuse);
+    m.attr("LIGHT_SPECULAR") = static_cast<int>(LightType::Specular);
 
     py::class_<RenderContext>(m, "Context")
         .def(py::init<py::list, bool, float>(), py::arg("lights"), py::arg("dither"), py::arg("upt"))

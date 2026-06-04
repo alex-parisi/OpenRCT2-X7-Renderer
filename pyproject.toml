@@ -5,7 +5,9 @@ description = "Embree-backed isometric renderer that turns meshes into OpenRCT2 
 readme = "README.md"
 requires-python = ">=3.11"
 license = "GPL-3.0-or-later"
-authors = [{ name = "Alex Parisi", email = "alex@atparisi.com" }]
+authors = [
+    { name = "Alex Parisi", email = "alex@atparisi.com" }
+]
 dependencies = [
     "numpy>=1.26",
     "pillow>=10.0",
@@ -19,6 +21,7 @@ Repository = "https://github.com/alex-parisi/OpenRCT2-X7-Renderer"
 [dependency-groups]
 dev = [
     "pytest>=8.0",
+    "pytest-cov>=5.0",
     "mypy>=1.10",
     "types-PyYAML>=6.0",
     "ruff>=0.5",
@@ -26,7 +29,7 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q --cov=openrct2_x7_renderer"
 
 [tool.ruff]
 line-length = 100
@@ -34,11 +37,12 @@ target-version = "py311"
 src = ["openrct2_x7_renderer", "tests"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "W"]
+select = ["E", "F", "I", "UP", "B", "W", "N"]
 
 [tool.mypy]
 python_version = "3.11"
 files = ["openrct2_x7_renderer"]
+strict = true
 warn_unused_ignores = true
 warn_redundant_casts = true
 warn_unused_configs = true
@@ -65,7 +69,6 @@ test-command = "python -c \"import openrct2_x7_renderer._x7_renderer as n; print
 
 [tool.cibuildwheel.linux]
 manylinux-x86_64-image = "manylinux_2_28"
-# Install Embree to /embree.
 before-all = "bash {project}/scripts/ci/install_embree_linux.sh"
 environment = { EMBREE_ROOT = "/embree", CMAKE_PREFIX_PATH = "/embree", LD_LIBRARY_PATH = "/embree/lib64" }
 
@@ -74,5 +77,4 @@ environment = { MACOSX_DEPLOYMENT_TARGET = "11.0" }
 
 [tool.cibuildwheel.windows]
 before-build = "pip install delvewheel"
-# Embree DLLs live in <EMBREE_ROOT>\bin
 repair-wheel-command = "delvewheel repair --add-path %EMBREE_ROOT%\\bin -w {dest_dir} {wheel}"

@@ -9,6 +9,19 @@ using namespace RCTGen;
 static constexpr float kEps = 1e-4f;
 
 // ---------------------------------------------------------------------------
+// color() constructor helper
+// ---------------------------------------------------------------------------
+
+TEST(PaletteColorHelper, ColorHelperMatchesDirectConstruct) {
+    // volatile prevents the constexpr call from being folded at compile time.
+    volatile std::uint8_t r = 10, g = 20, b = 30;
+    Color const c = color(r, g, b);
+    EXPECT_EQ(c.r, 10);
+    EXPECT_EQ(c.g, 20);
+    EXPECT_EQ(c.b, 30);
+}
+
+// ---------------------------------------------------------------------------
 // sRGB <-> linear round-trips via the public API
 // ---------------------------------------------------------------------------
 
@@ -76,7 +89,7 @@ TEST(PaletteColorConversion, ClampAboveOne) {
 }
 
 // ---------------------------------------------------------------------------
-// palette_get_nearest
+// PaletteGetNearest
 // ---------------------------------------------------------------------------
 
 namespace {
@@ -89,14 +102,14 @@ namespace {
 TEST_F(PaletteTest, ReturnsValidIndex) {
     // Region 0 covers indices 10–201, 214–226, 240–242. Any returned index
     // must be within the full palette range.
-    auto result = palette_get_nearest(palette, 0, vector3(0.5f, 0.5f, 0.5f));
+    auto result = PaletteGetNearest(palette, 0, vector3(0.5f, 0.5f, 0.5f));
     EXPECT_GE(result.index, 0);
     EXPECT_LE(result.index, 254);
 }
 
 TEST_F(PaletteTest, BlackInputReturnsDarkColor) {
     // The nearest palette color to linear black should itself be very dark.
-    auto result = palette_get_nearest(palette, 0, vector3(0.0f, 0.0f, 0.0f));
+    auto result = PaletteGetNearest(palette, 0, vector3(0.0f, 0.0f, 0.0f));
     Color const nearest = palette.colors[result.index];
     // In sRGB the returned color should be dark (all channels < 100).
     EXPECT_LT(nearest.r, 100);
@@ -105,7 +118,7 @@ TEST_F(PaletteTest, BlackInputReturnsDarkColor) {
 }
 
 TEST_F(PaletteTest, WhiteInputReturnsBrightColor) {
-    auto result = palette_get_nearest(palette, 0, vector3(1.0f, 1.0f, 1.0f));
+    auto result = PaletteGetNearest(palette, 0, vector3(1.0f, 1.0f, 1.0f));
     Color const nearest = palette.colors[result.index];
     EXPECT_GT(nearest.r, 150);
     EXPECT_GT(nearest.g, 150);
@@ -117,7 +130,7 @@ TEST_F(PaletteTest, ErrorIsZeroForExactPaletteColor) {
     // be essentially zero.
     Color const exact = palette.colors[11]; // sRGB (35, 51, 51)
     Vector3 const linear = vector_from_color(exact);
-    auto result = palette_get_nearest(palette, 0, linear);
+    auto result = PaletteGetNearest(palette, 0, linear);
     EXPECT_NEAR(result.error.x, 0.0f, kEps);
     EXPECT_NEAR(result.error.y, 0.0f, kEps);
     EXPECT_NEAR(result.error.z, 0.0f, kEps);
@@ -126,7 +139,7 @@ TEST_F(PaletteTest, ErrorIsZeroForExactPaletteColor) {
 TEST_F(PaletteTest, RemapRegionReturnsRemapIndex) {
     // Region 1 is the primary remap (player color). Its palette indices
     // are 243–254. The returned index must fall in that range.
-    auto result = palette_get_nearest(palette, 1, vector3(0.5f, 0.5f, 0.5f));
+    auto result = PaletteGetNearest(palette, 1, vector3(0.5f, 0.5f, 0.5f));
     EXPECT_GE(result.index, 243);
     EXPECT_LE(result.index, 254);
 }
@@ -135,7 +148,7 @@ TEST_F(PaletteTest, DifferentRegionsReturnDifferentIndices) {
     // The same input color looked up in different regions should generally
     // return different palette indices.
     Vector3 const mid_grey = vector3(0.5f, 0.5f, 0.5f);
-    auto r0 = palette_get_nearest(palette, 0, mid_grey);
-    auto r1 = palette_get_nearest(palette, 1, mid_grey);
+    auto r0 = PaletteGetNearest(palette, 0, mid_grey);
+    auto r1 = PaletteGetNearest(palette, 1, mid_grey);
     EXPECT_NE(r0.index, r1.index);
 }
