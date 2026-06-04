@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Embree-backed isometric renderer that turns meshes into OpenRCT2 palette-indexed sprites."
 readme = "README.md"
 requires-python = ">=3.11"
-license = "GPL-3.0-or-later"
+license = "GPL-2.0-or-later"
 authors = [{ name = "Alex Parisi", email = "alex@atparisi.com" }]
 dependencies = [
     "numpy>=1.26",
@@ -13,8 +13,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/atparisi/OpenRCT2-X7-Renderer"
-Repository = "https://github.com/atparisi/OpenRCT2-X7-Renderer"
+Homepage = "https://github.com/alex-parisi/OpenRCT2-X7-Renderer"
+Repository = "https://github.com/alex-parisi/OpenRCT2-X7-Renderer"
 
 [dependency-groups]
 dev = [
