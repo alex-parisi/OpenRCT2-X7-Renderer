@@ -13,8 +13,7 @@ namespace RCTGen {
 
     // Nearest-neighbour texture lookup with UV wrapping.
     Vector3 texture_sample(const Texture& texture, Vector2 coord) {
-        if (texture.width == 0 || texture.height == 0 || texture.pixels.empty())
-            return vector3(0.0f, 0.0f, 0.0f);
+        if (texture.width == 0 || texture.height == 0 || texture.pixels.empty()) return vector3(0.0f, 0.0f, 0.0f);
         auto tex_x = static_cast<std::uint16_t>(
             static_cast<std::uint32_t>(static_cast<float>(texture.width) * WrapCoord(coord.x)));
         auto tex_y = static_cast<std::uint16_t>(

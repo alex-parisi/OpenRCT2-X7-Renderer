@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 
 from . import _x7_renderer as x7
-from .constants import MaterialFlag, TILE_SIZE
+from .constants import TILE_SIZE, MaterialFlag
 from .mesh import Mesh
 from .types import IndexedImage, Light
 

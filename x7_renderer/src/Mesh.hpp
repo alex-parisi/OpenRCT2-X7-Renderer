@@ -17,16 +17,16 @@ namespace RCTGen {
     };
 
     enum class MaterialFlag : std::uint16_t {
-        None             = 0,
-        HasTexture       = 1u << 0,
-        IsRemappable     = 1u << 1,
-        IsMask           = 1u << 2,
-        NoAO             = 1u << 3,
-        BackgroundAA     = 1u << 4,
+        None = 0,
+        HasTexture = 1u << 0,
+        IsRemappable = 1u << 1,
+        IsMask = 1u << 2,
+        NoAO = 1u << 3,
+        BackgroundAA = 1u << 4,
         BackgroundAADark = 1u << 5,
-        IsVisibleMask    = 1u << 6,
-        NoBleed          = 1u << 7,
-        IsFlatShaded     = 1u << 8,
+        IsVisibleMask = 1u << 6,
+        NoBleed = 1u << 7,
+        IsFlatShaded = 1u << 8,
     };
 
     constexpr MaterialFlag operator|(MaterialFlag a, MaterialFlag b) noexcept {

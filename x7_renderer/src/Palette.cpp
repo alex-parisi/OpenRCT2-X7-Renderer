@@ -60,8 +60,7 @@ namespace RCTGen {
         result.index = nearest_index;
         if (palette.regions[region].remap) {
             std::uint8_t const start_index = palette.regions[region].start_indices[0];
-            Vector3 const matched_color =
-                vector_from_color(palette.remap_colors[nearest_index - start_index]);
+            Vector3 const matched_color = vector_from_color(palette.remap_colors[nearest_index - start_index]);
             result.error = vector3_sub(vector3(Vector3GetLuma(target), 0.0f, 0.0f),
                                        vector3(Vector3GetLuma(matched_color), 0.0f, 0.0f));
         } else {

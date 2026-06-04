@@ -19,18 +19,44 @@ from enum import IntEnum, IntFlag
 
 from ._x7_renderer import (
     LIGHT_DIFFUSE as _LIGHT_DIFFUSE,
+)
+from ._x7_renderer import (
     LIGHT_HEMI as _LIGHT_HEMI,
+)
+from ._x7_renderer import (
     LIGHT_SPECULAR as _LIGHT_SPECULAR,
+)
+from ._x7_renderer import (
     MATERIAL_BACKGROUND_AA as _MATERIAL_BACKGROUND_AA,
+)
+from ._x7_renderer import (
     MATERIAL_BACKGROUND_AA_DARK as _MATERIAL_BACKGROUND_AA_DARK,
+)
+from ._x7_renderer import (
     MATERIAL_HAS_TEXTURE as _MATERIAL_HAS_TEXTURE,
+)
+from ._x7_renderer import (
     MATERIAL_IS_FLAT_SHADED as _MATERIAL_IS_FLAT_SHADED,
+)
+from ._x7_renderer import (
     MATERIAL_IS_MASK as _MATERIAL_IS_MASK,
+)
+from ._x7_renderer import (
     MATERIAL_IS_REMAPPABLE as _MATERIAL_IS_REMAPPABLE,
+)
+from ._x7_renderer import (
     MATERIAL_IS_VISIBLE_MASK as _MATERIAL_IS_VISIBLE_MASK,
+)
+from ._x7_renderer import (
     MATERIAL_NO_AO as _MATERIAL_NO_AO,
+)
+from ._x7_renderer import (
     MATERIAL_NO_BLEED as _MATERIAL_NO_BLEED,
+)
+from ._x7_renderer import (
     MESH_GHOST as _MESH_GHOST,
+)
+from ._x7_renderer import (
     MESH_MASK as _MESH_MASK,
 )
 

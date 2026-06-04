@@ -138,7 +138,7 @@ def read_vector3(arr: Any) -> np.ndarray:
         raise LoadError(f"Vector element is not a number: {e}") from e
 
 
-def as_array_or_wrap(value: Any) -> list:
+def as_array_or_wrap(value: Any) -> list[Any]:
     """Return ``value`` as-is if it is a non-empty list, or wrap a scalar in a one-element list."""
     if value is None:
         raise LoadError("Missing value")

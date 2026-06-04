@@ -129,12 +129,8 @@ TEST_F(RayTraceTest, TraceRaySkipsGhostMesh) {
     auto solid_data = TestMeshData::make_quad();
 
     // Place ghost at z=0, solid at z=2 (behind ghost from ray's perspective)
-    auto ghost_xform = [](Vector3 v, Vector3 n) -> Vertex {
-        return {v, n};
-    };
-    auto solid_xform = [](Vector3 v, Vector3 n) -> Vertex {
-        return {{v.x, v.y, v.z + 2.0f}, n};
-    };
+    auto ghost_xform = [](Vector3 v, Vector3 n) -> Vertex { return {v, n}; };
+    auto solid_xform = [](Vector3 v, Vector3 n) -> Vertex { return {{v.x, v.y, v.z + 2.0f}, n}; };
 
     Scene scene(device.get());
     SceneAddModel(scene, ghost_data.mesh, ghost_xform, MeshFlag::Ghost);
@@ -207,8 +203,7 @@ TEST_F(RayTraceTest, SceneAddModelUpdatesAABB) {
 TEST_F(RayTraceTest, SceneAddModelExceedsMeshLimit) {
     auto data = TestMeshData::make_triangle();
     Scene scene(device.get());
-    for (std::size_t i = 0; i < kMaxMeshes; ++i)
-        SceneAddModel(scene, data.mesh, identity_transform, MeshFlag::None);
+    for (std::size_t i = 0; i < kMaxMeshes; ++i) SceneAddModel(scene, data.mesh, identity_transform, MeshFlag::None);
     EXPECT_THROW(SceneAddModel(scene, data.mesh, identity_transform, MeshFlag::None), std::runtime_error);
     scene.finalize();
 }

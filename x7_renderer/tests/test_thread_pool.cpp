@@ -81,8 +81,7 @@ TEST(ThreadPool, RunCoversAllIndices) {
 
     pool.run(kCount, [&](int i) { seen[i].store(true); });
 
-    for (int i = 0; i < kCount; ++i)
-        EXPECT_TRUE(seen[i].load()) << "index " << i << " was never visited";
+    for (int i = 0; i < kCount; ++i) EXPECT_TRUE(seen[i].load()) << "index " << i << " was never visited";
 }
 
 TEST(ThreadPool, SequentialRunsProduceCorrectSum) {

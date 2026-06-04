@@ -213,7 +213,7 @@ class Mesh:
 
 
 def _generate_normals(vertices: np.ndarray, faces: np.ndarray) -> np.ndarray:
-    """Area-weighted per-face normals accumulated at shared vertices and normalized to unit length."""
+    """Area-weighted per-face normals accumulated at shared vertices, normalized to unit length."""
     normals = np.zeros_like(vertices)
     v0 = vertices[faces[:, 0]]
     v1 = vertices[faces[:, 1]]
@@ -224,7 +224,8 @@ def _generate_normals(vertices: np.ndarray, faces: np.ndarray) -> np.ndarray:
     np.add.at(normals, faces[:, 2], face_normals)
     norms = np.linalg.norm(normals, axis=1)
     norms[norms == 0] = 1.0
-    return normals / norms[:, None]
+    result: np.ndarray = normals / norms[:, None]
+    return result
 
 
 def load_mesh(filename: str | Path, transform: np.ndarray | None = None) -> Mesh:
@@ -305,7 +306,8 @@ def load_mesh(filename: str | Path, transform: np.ndarray | None = None) -> Mesh
             raw_uvs.append((float(parts[1]), float(parts[2])))
         elif cmd == "mtllib" and len(parts) >= 2:
             for mtl_name in parts[1:]:
-                mtl_path = (base_dir / mtl_name) if not Path(mtl_name).is_absolute() else Path(mtl_name)
+                name_path = Path(mtl_name)
+                mtl_path = name_path if name_path.is_absolute() else (base_dir / mtl_name)
                 materials.update(_parse_mtl(mtl_path, base_dir))
         elif cmd == "usemtl" and len(parts) >= 2:
             current_material = material_index(parts[1])

@@ -22,8 +22,7 @@ namespace RCTGen {
 
     namespace {
         [[noreturn]] void RtError(void* /*user_ptr*/, enum RTCError error, const char* str) {
-            throw std::runtime_error(
-                "Embree error " + std::to_string(static_cast<int>(error)) + ": " + str);
+            throw std::runtime_error("Embree error " + std::to_string(static_cast<int>(error)) + ": " + str);
         }
 
         void OcclusionFilter(const struct RTCFilterFunctionNArguments* args) {
@@ -43,9 +42,8 @@ namespace RCTGen {
     DeviceHandle DeviceHandle::create() {
         RTCDevice d = rtcNewDevice(nullptr);
         if (!d) {
-            throw std::runtime_error(
-                "Embree: cannot create device (error "
-                + std::to_string(static_cast<int>(rtcGetDeviceError(nullptr))) + ")");
+            throw std::runtime_error("Embree: cannot create device (error "
+                                     + std::to_string(static_cast<int>(rtcGetDeviceError(nullptr))) + ")");
         }
         rtcSetDeviceErrorFunction(d, RtError, nullptr);
         return DeviceHandle(d);
@@ -55,8 +53,8 @@ namespace RCTGen {
         if (device_) rtcReleaseDevice(device_);
     }
 
-    DeviceHandle::DeviceHandle(DeviceHandle&& other) noexcept
-        : device_(std::exchange(other.device_, nullptr)) {}
+    DeviceHandle::DeviceHandle(DeviceHandle&& other) noexcept : device_(std::exchange(other.device_, nullptr)) {
+    }
 
     DeviceHandle& DeviceHandle::operator=(DeviceHandle&& other) noexcept {
         if (this != &other) {
@@ -75,32 +73,21 @@ namespace RCTGen {
     }
 
     Scene::Scene(RTCDevice device)
-        : x_min(std::numeric_limits<float>::infinity()),
-          x_max(-std::numeric_limits<float>::infinity()),
-          y_min(std::numeric_limits<float>::infinity()),
-          y_max(-std::numeric_limits<float>::infinity()),
-          z_min(std::numeric_limits<float>::infinity()),
-          z_max(-std::numeric_limits<float>::infinity()),
-          embree_device(device),
-          embree_scene(rtcNewScene(device)) {}
+        : x_min(std::numeric_limits<float>::infinity()), x_max(-std::numeric_limits<float>::infinity()),
+          y_min(std::numeric_limits<float>::infinity()), y_max(-std::numeric_limits<float>::infinity()),
+          z_min(std::numeric_limits<float>::infinity()), z_max(-std::numeric_limits<float>::infinity()),
+          embree_device(device), embree_scene(rtcNewScene(device)) {
+    }
 
     Scene::~Scene() {
         if (embree_scene) rtcReleaseScene(embree_scene);
     }
 
     Scene::Scene(Scene&& other) noexcept
-        : meshes(other.meshes),
-          mask(other.mask),
-          ghost(other.ghost),
-          num_meshes(other.num_meshes),
-          x_min(other.x_min),
-          x_max(other.x_max),
-          y_min(other.y_min),
-          y_max(other.y_max),
-          z_min(other.z_min),
-          z_max(other.z_max),
-          embree_device(other.embree_device),
-          embree_scene(std::exchange(other.embree_scene, nullptr)) {}
+        : meshes(other.meshes), mask(other.mask), ghost(other.ghost), num_meshes(other.num_meshes), x_min(other.x_min),
+          x_max(other.x_max), y_min(other.y_min), y_max(other.y_max), z_min(other.z_min), z_max(other.z_max),
+          embree_device(other.embree_device), embree_scene(std::exchange(other.embree_scene, nullptr)) {
+    }
 
     Scene& Scene::operator=(Scene&& other) noexcept {
         if (this != &other) {
@@ -127,9 +114,9 @@ namespace RCTGen {
 
     // NOLINTNEXTLINE(misc-use-internal-linkage)
     void SceneAddModel(Scene& scene,
-                         const Mesh& mesh,
-                         const std::function<Vertex(Vector3, Vector3)>& transform_fn,
-                         MeshFlag flags) {
+                       const Mesh& mesh,
+                       const std::function<Vertex(Vector3, Vector3)>& transform_fn,
+                       MeshFlag flags) {
         if (scene.num_meshes >= kMaxMeshes)
             throw std::runtime_error("scene mesh limit exceeded (max " + std::to_string(kMaxMeshes) + ")");
         scene.meshes[scene.num_meshes] = &mesh;
@@ -139,8 +126,7 @@ namespace RCTGen {
 
         // Create Embree geometry
         RTCGeometry geom = rtcNewGeometry(scene.embree_device, RTC_GEOMETRY_TYPE_TRIANGLE);
-        if (geom == nullptr)
-            throw std::runtime_error("Embree: failed to allocate geometry");
+        if (geom == nullptr) throw std::runtime_error("Embree: failed to allocate geometry");
 
         rtcSetGeometryVertexAttributeCount(geom, 1);
         auto* vertices = static_cast<float*>(rtcSetNewGeometryBuffer(geom, RTC_BUFFER_TYPE_VERTEX, 0, RTC_FORMAT_FLOAT3,

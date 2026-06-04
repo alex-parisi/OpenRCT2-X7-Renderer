@@ -108,7 +108,8 @@ def face_centroids(mesh: Mesh) -> np.ndarray:
     if mesh.faces.shape[0] == 0:
         return np.zeros((0, 3), dtype=np.float64)
     tri = mesh.vertices.astype(np.float64)[mesh.faces]  # (F, 3, 3)
-    return tri.mean(axis=1)
+    centroids: np.ndarray = tri.mean(axis=1)
+    return centroids
 
 
 def assign_faces_to_tiles(mesh: Mesh, tile_centers_xz: np.ndarray) -> np.ndarray:
@@ -120,7 +121,8 @@ def assign_faces_to_tiles(mesh: Mesh, tile_centers_xz: np.ndarray) -> np.ndarray
     xz = cents[:, (0, 2)]  # OBJ X and Z are the horizontal plane (+Y is up)
     # (F, T) squared distances.
     d = ((xz[:, None, :] - tile_centers_xz[None, :, :]) ** 2).sum(axis=2)
-    return np.argmin(d, axis=1)
+    nearest: np.ndarray = np.argmin(d, axis=1)
+    return nearest
 
 
 def subset_mesh(mesh: Mesh, face_mask: np.ndarray) -> Mesh:

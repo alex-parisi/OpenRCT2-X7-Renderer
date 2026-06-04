@@ -2,9 +2,8 @@
 
 import importlib
 import importlib.metadata
-from unittest.mock import patch
-
 from importlib.metadata import PackageNotFoundError
+from unittest.mock import patch
 
 
 def test_version_is_a_string():

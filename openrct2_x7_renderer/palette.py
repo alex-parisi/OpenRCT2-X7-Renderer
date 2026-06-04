@@ -7,6 +7,7 @@ texture loading independently of the renderer.
 __all__ = ["PALETTE_RGB", "TRANSPARENT_INDEX", "srgb2linear"]
 
 import numpy as np
+
 from ._x7_renderer import palette_rgb as _native_palette_rgb
 
 TRANSPARENT_INDEX = 0

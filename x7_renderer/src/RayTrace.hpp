@@ -17,7 +17,8 @@ namespace RCTGen {
 
     class DeviceHandle {
         RTCDevice device_{nullptr};
-        explicit DeviceHandle(RTCDevice d) noexcept : device_(d) {}
+        explicit DeviceHandle(RTCDevice d) noexcept : device_(d) {
+        }
 
     public:
         DeviceHandle() noexcept = default;
@@ -31,8 +32,12 @@ namespace RCTGen {
         DeviceHandle(const DeviceHandle&) = delete;
         DeviceHandle& operator=(const DeviceHandle&) = delete;
 
-        [[nodiscard]] RTCDevice get() const noexcept { return device_; }
-        explicit operator bool() const noexcept { return device_ != nullptr; }
+        [[nodiscard]] RTCDevice get() const noexcept {
+            return device_;
+        }
+        explicit operator bool() const noexcept {
+            return device_ != nullptr;
+        }
     };
 
     struct Vertex {
@@ -41,8 +46,8 @@ namespace RCTGen {
     };
 
     enum class MeshFlag : int {
-        None  = 0,
-        Mask  = 1 << 0,
+        None = 0,
+        Mask = 1 << 0,
         Ghost = 1 << 1,
     };
 
@@ -89,11 +94,10 @@ namespace RCTGen {
         float v{};
     };
 
-
     void SceneAddModel(Scene& scene,
-                         const Mesh& mesh,
-                         const std::function<Vertex(Vector3, Vector3)>& transform_fn,
-                         MeshFlag flags);
+                       const Mesh& mesh,
+                       const std::function<Vertex(Vector3, Vector3)>& transform_fn,
+                       MeshFlag flags);
 
     [[nodiscard]] bool scene_trace_ray(Scene& scene, Vector3 origin, Vector3 direction, RayHit& hit);
 

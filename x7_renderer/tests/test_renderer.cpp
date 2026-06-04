@@ -98,7 +98,10 @@ TEST_F(RendererTest, RenderTriangleProducesPixels) {
     EXPECT_FALSE(img.pixels.empty());
     bool has_nonzero = false;
     for (auto px : img.pixels) {
-        if (px != 0) { has_nonzero = true; break; }
+        if (px != 0) {
+            has_nonzero = true;
+            break;
+        }
     }
     EXPECT_TRUE(has_nonzero);
     context_end_render(ctx);
@@ -310,8 +313,10 @@ TEST_F(RendererTest, RenderNoBleedMaterial) {
 TEST_F(RendererTest, RenderWithTexturedMaterial) {
     auto data = TestMeshData::make_textured_triangle();
     std::vector<Vector3> tex_pixels = {
-        {1, 0, 0}, {0, 1, 0},
-        {0, 0, 1}, {1, 1, 0},
+        {1, 0, 0},
+        {0, 1, 0},
+        {0, 0, 1},
+        {1, 1, 0},
     };
     data.materials[0].texture = {2, 2, tex_pixels};
     data.mesh = {data.vertices, data.normals, data.uvs, data.faces, data.materials};
@@ -403,8 +408,7 @@ TEST_F(RendererTest, RenderWithZeroNormals) {
     // Must not crash or produce a zero-dimension image.
     EXPECT_GE(img.width, 0);
     // No pixel should contain NaN-derived garbage (palette indices are uint8).
-    for (auto px : img.pixels)
-        EXPECT_LT(px, 256);
+    for (auto px : img.pixels) EXPECT_LT(px, 256);
     context_end_render(ctx);
 }
 

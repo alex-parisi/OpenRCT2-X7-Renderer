@@ -19,8 +19,7 @@ namespace RCTGen {
     public:
         explicit ThreadPool(unsigned int n) {
             workers_.reserve(n);
-            for (unsigned int i = 0; i < n; ++i)
-                workers_.emplace_back([this] { worker_loop(); });
+            for (unsigned int i = 0; i < n; ++i) workers_.emplace_back([this] { worker_loop(); });
         }
 
         ~ThreadPool() {
@@ -75,8 +74,7 @@ namespace RCTGen {
                 lock.unlock();
                 task();
                 lock.lock();
-                if (--busy_ == 0 && queue_.empty())
-                    idle_cv_.notify_all();
+                if (--busy_ == 0 && queue_.empty()) idle_cv_.notify_all();
             }
         }
 

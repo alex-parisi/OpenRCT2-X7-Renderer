@@ -157,14 +157,10 @@ namespace RCTGen {
         assert(d != 0.0f); // caller passed a singular (non-invertible) matrix
         if (d == 0.0f) return matrix_identity();
         const float inv_d = 1.0f / d;
-        return matrix((m(1, 1) * m(2, 2) - m(1, 2) * m(2, 1)) * inv_d,
-                      (m(0, 2) * m(2, 1) - m(2, 2) * m(0, 1)) * inv_d,
-                      (m(0, 1) * m(1, 2) - m(1, 1) * m(0, 2)) * inv_d,
-                      (m(1, 2) * m(2, 0) - m(2, 2) * m(1, 0)) * inv_d,
-                      (m(0, 0) * m(2, 2) - m(2, 0) * m(0, 2)) * inv_d,
-                      (m(0, 2) * m(1, 0) - m(1, 2) * m(0, 0)) * inv_d,
-                      (m(1, 0) * m(2, 1) - m(2, 0) * m(1, 1)) * inv_d,
-                      (m(0, 1) * m(2, 0) - m(2, 1) * m(0, 0)) * inv_d,
+        return matrix((m(1, 1) * m(2, 2) - m(1, 2) * m(2, 1)) * inv_d, (m(0, 2) * m(2, 1) - m(2, 2) * m(0, 1)) * inv_d,
+                      (m(0, 1) * m(1, 2) - m(1, 1) * m(0, 2)) * inv_d, (m(1, 2) * m(2, 0) - m(2, 2) * m(1, 0)) * inv_d,
+                      (m(0, 0) * m(2, 2) - m(2, 0) * m(0, 2)) * inv_d, (m(0, 2) * m(1, 0) - m(1, 2) * m(0, 0)) * inv_d,
+                      (m(1, 0) * m(2, 1) - m(2, 0) * m(1, 1)) * inv_d, (m(0, 1) * m(2, 0) - m(2, 1) * m(0, 0)) * inv_d,
                       (m(0, 0) * m(1, 1) - m(1, 0) * m(0, 1)) * inv_d);
     }
 

@@ -9,8 +9,12 @@
 
 namespace MockEmbree {
     static State g_state;
-    State& state() { return g_state; }
-    void reset() { g_state = State{}; }
+    State& state() {
+        return g_state;
+    }
+    void reset() {
+        g_state = State{};
+    }
 } // namespace MockEmbree
 
 // ---------------------------------------------------------------------------
@@ -21,14 +25,20 @@ static char g_fake_device_storage;
 static char g_fake_scene_storage;
 static char g_fake_geometry_storage;
 
-static RTCDevice fake_device() { return reinterpret_cast<RTCDevice>(&g_fake_device_storage); }
-static RTCScene  fake_scene()  { return reinterpret_cast<RTCScene>(&g_fake_scene_storage); }
-static RTCGeometry fake_geom() { return reinterpret_cast<RTCGeometry>(&g_fake_geometry_storage); }
+static RTCDevice fake_device() {
+    return reinterpret_cast<RTCDevice>(&g_fake_device_storage);
+}
+static RTCScene fake_scene() {
+    return reinterpret_cast<RTCScene>(&g_fake_scene_storage);
+}
+static RTCGeometry fake_geom() {
+    return reinterpret_cast<RTCGeometry>(&g_fake_geometry_storage);
+}
 
 // Geometry buffer backing store — three buffers (vertices, normals, indices).
 // 128 meshes * max reasonable verts — we only need enough to not segfault.
-static float  g_vertex_buf[1024 * 3];
-static float  g_normal_buf[1024 * 3];
+static float g_vertex_buf[1024 * 3];
+static float g_normal_buf[1024 * 3];
 static unsigned int g_index_buf[1024 * 3];
 static int g_buffer_call = 0;
 
@@ -53,15 +63,20 @@ void rtcSetDeviceErrorFunction(RTCDevice, RTCErrorFunction fn, void* ptr) {
     s.error_callback_user_ptr = ptr;
 }
 
-void rtcReleaseDevice(RTCDevice) {}
+void rtcReleaseDevice(RTCDevice) {
+}
 
 // ---------------------------------------------------------------------------
 // Scene
 // ---------------------------------------------------------------------------
 
-RTCScene rtcNewScene(RTCDevice) { return fake_scene(); }
-void rtcCommitScene(RTCScene) {}
-void rtcReleaseScene(RTCScene) {}
+RTCScene rtcNewScene(RTCDevice) {
+    return fake_scene();
+}
+void rtcCommitScene(RTCScene) {
+}
+void rtcReleaseScene(RTCScene) {
+}
 
 // ---------------------------------------------------------------------------
 // Geometry
@@ -73,10 +88,10 @@ RTCGeometry rtcNewGeometry(RTCDevice, enum RTCGeometryType) {
     return fake_geom();
 }
 
-void rtcSetGeometryVertexAttributeCount(RTCGeometry, unsigned int) {}
+void rtcSetGeometryVertexAttributeCount(RTCGeometry, unsigned int) {
+}
 
-void* rtcSetNewGeometryBuffer(RTCGeometry, enum RTCBufferType type,
-                              unsigned int, enum RTCFormat, size_t, size_t) {
+void* rtcSetNewGeometryBuffer(RTCGeometry, enum RTCBufferType type, unsigned int, enum RTCFormat, size_t, size_t) {
     auto& s = MockEmbree::state();
     if (s.buffer_alloc_fails) return nullptr;
     g_buffer_call++;
@@ -95,10 +110,15 @@ void* rtcSetNewGeometryBuffer(RTCGeometry, enum RTCBufferType type,
     return g_vertex_buf;
 }
 
-void rtcReleaseGeometry(RTCGeometry) {}
-void rtcCommitGeometry(RTCGeometry) {}
-unsigned int rtcAttachGeometry(RTCScene, RTCGeometry) { return 0; }
-void rtcSetGeometryOccludedFilterFunction(RTCGeometry, RTCFilterFunctionN) {}
+void rtcReleaseGeometry(RTCGeometry) {
+}
+void rtcCommitGeometry(RTCGeometry) {
+}
+unsigned int rtcAttachGeometry(RTCScene, RTCGeometry) {
+    return 0;
+}
+void rtcSetGeometryOccludedFilterFunction(RTCGeometry, RTCFilterFunctionN) {
+}
 
 // ---------------------------------------------------------------------------
 // Ray tracing — not needed for error-path tests, but must exist to link.
@@ -108,9 +128,12 @@ void rtcIntersect1(RTCScene, struct RTCRayHit* rayhit, struct RTCIntersectArgume
     rayhit->hit.geomID = RTC_INVALID_GEOMETRY_ID;
 }
 
-void rtcOccluded1(RTCScene, struct RTCRay*, struct RTCOccludedArguments*) {}
+void rtcOccluded1(RTCScene, struct RTCRay*, struct RTCOccludedArguments*) {
+}
 
-RTCGeometry rtcGetGeometry(RTCScene, unsigned int) { return fake_geom(); }
+RTCGeometry rtcGetGeometry(RTCScene, unsigned int) {
+    return fake_geom();
+}
 
 void rtcInterpolate(const struct RTCInterpolateArguments* args) {
     if (args->P) std::memset(args->P, 0, args->valueCount * sizeof(float));

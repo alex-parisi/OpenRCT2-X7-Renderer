@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any
 
 from .config import LoadError, parse_config
-from .constants import TILE_SIZE
 from .lights import default_lights, load_lights
 from .ray_trace import Context
 from .types import Light

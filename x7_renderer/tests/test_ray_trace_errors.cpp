@@ -3,10 +3,10 @@
 /// These tests run against mock_embree.cpp, allowing us to make Embree API
 /// calls return null/error to exercise the otherwise-unreachable error paths.
 
-#include "mock_embree.h"
 #include "Mesh.hpp"
 #include "RayTrace.hpp"
 #include "VectorMath.hpp"
+#include "mock_embree.h"
 #include <gtest/gtest.h>
 #include <stdexcept>
 #include <vector>
@@ -14,7 +14,9 @@
 using namespace RCTGen;
 
 namespace {
-    Vertex identity_transform(Vector3 v, Vector3 n) { return {v, n}; }
+    Vertex identity_transform(Vector3 v, Vector3 n) {
+        return {v, n};
+    }
 
     struct TestMeshData {
         std::vector<Vector3> vertices{{-1, -1, 0}, {1, -1, 0}, {0, 1, 0}};
@@ -28,8 +30,12 @@ namespace {
 
 class RayTraceErrorTest : public ::testing::Test {
 protected:
-    void SetUp() override { MockEmbree::reset(); }
-    void TearDown() override { MockEmbree::reset(); }
+    void SetUp() override {
+        MockEmbree::reset();
+    }
+    void TearDown() override {
+        MockEmbree::reset();
+    }
 };
 
 TEST_F(RayTraceErrorTest, DeviceInitThrowsWhenEmbreeReturnsNull) {
@@ -53,10 +59,7 @@ TEST_F(RayTraceErrorTest, SceneAddModelThrowsWhenGeometryAllocFails) {
     auto device = DeviceHandle::create();
     Scene scene(device.get());
     MockEmbree::state().geometry_alloc_fails = true;
-    EXPECT_THROW(
-        SceneAddModel(scene, data.mesh, identity_transform, MeshFlag::None),
-        std::runtime_error
-    );
+    EXPECT_THROW(SceneAddModel(scene, data.mesh, identity_transform, MeshFlag::None), std::runtime_error);
 }
 
 TEST_F(RayTraceErrorTest, SceneAddModelThrowsWhenBufferAllocFails) {
@@ -64,20 +67,14 @@ TEST_F(RayTraceErrorTest, SceneAddModelThrowsWhenBufferAllocFails) {
     auto device = DeviceHandle::create();
     Scene scene(device.get());
     MockEmbree::state().buffer_alloc_fails = true;
-    EXPECT_THROW(
-        SceneAddModel(scene, data.mesh, identity_transform, MeshFlag::None),
-        std::runtime_error
-    );
+    EXPECT_THROW(SceneAddModel(scene, data.mesh, identity_transform, MeshFlag::None), std::runtime_error);
 }
 
 TEST_F(RayTraceErrorTest, RtErrorCallbackThrowsRuntimeError) {
     auto device = DeviceHandle::create();
     auto& s = MockEmbree::state();
     ASSERT_NE(s.error_callback, nullptr);
-    EXPECT_THROW(
-        s.error_callback(s.error_callback_user_ptr, RTC_ERROR_UNKNOWN, "test error"),
-        std::runtime_error
-    );
+    EXPECT_THROW(s.error_callback(s.error_callback_user_ptr, RTC_ERROR_UNKNOWN, "test error"), std::runtime_error);
 }
 
 TEST_F(RayTraceErrorTest, RtErrorMessageContainsErrorCodeAndString) {
@@ -98,10 +95,7 @@ TEST_F(RayTraceErrorTest, BufferFailOnNormalsOnly) {
     auto device = DeviceHandle::create();
     Scene scene(device.get());
     MockEmbree::state().normal_buffer_fails = true;
-    EXPECT_THROW(
-        SceneAddModel(scene, data.mesh, identity_transform, MeshFlag::None),
-        std::runtime_error
-    );
+    EXPECT_THROW(SceneAddModel(scene, data.mesh, identity_transform, MeshFlag::None), std::runtime_error);
 }
 
 TEST_F(RayTraceErrorTest, BufferFailOnIndicesOnly) {
@@ -109,8 +103,5 @@ TEST_F(RayTraceErrorTest, BufferFailOnIndicesOnly) {
     auto device = DeviceHandle::create();
     Scene scene(device.get());
     MockEmbree::state().index_buffer_fails = true;
-    EXPECT_THROW(
-        SceneAddModel(scene, data.mesh, identity_transform, MeshFlag::None),
-        std::runtime_error
-    );
+    EXPECT_THROW(SceneAddModel(scene, data.mesh, identity_transform, MeshFlag::None), std::runtime_error);
 }
