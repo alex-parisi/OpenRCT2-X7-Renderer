@@ -1,0 +1,78 @@
+name: build-check
+
+# Smoke-test the Embree-vendored wheel build on every push/PR so we don't first
+# hear about platform-specific build breakage from a release tag. Mirrors the
+# publish.yml build matrix but drops version pinning and artifact upload -- this
+# run just has to compile and import cleanly (the cibuildwheel test-command in
+# pyproject.toml imports the extension).
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  EMBREE_VERSION: "4.4.1"
+
+jobs:
+  build-wheels:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: linux-x86_64
+          - os: macos-14
+            name: macos-arm64
+          - os: windows-latest
+            name: windows-x64
+    steps:
+      - uses: actions/checkout@v4
+
+      # Linux Embree is fetched inside the manylinux container by
+      # scripts/ci/install_embree_linux.sh (wired via [tool.cibuildwheel.linux]
+      # before-all). macOS/Windows build on the host, so fetch Embree here and
+      # export the paths cibuildwheel forwards into the build.
+      - name: Install Embree (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          EMB="$GITHUB_WORKSPACE/embree"
+          BASE="https://github.com/RenderKit/embree/releases/download"
+          curl -fL -o embree.zip "$BASE/v$EMBREE_VERSION/embree-$EMBREE_VERSION.arm64.macosx.zip"
+          mkdir -p "$EMB"
+          unzip -q embree.zip -d "$EMB"
+          # Releases unzip into a versioned subdir; flatten if so.
+          inner=$(find "$EMB" -maxdepth 1 -mindepth 1 -type d -name 'embree*' | head -n1)
+          [ -n "$inner" ] && cp -R "$inner"/* "$EMB/" || true
+          echo "EMBREE_ROOT=$EMB" >> "$GITHUB_ENV"
+          echo "CMAKE_PREFIX_PATH=$EMB" >> "$GITHUB_ENV"
+          echo "DYLD_FALLBACK_LIBRARY_PATH=$EMB/lib" >> "$GITHUB_ENV"
+
+      - name: Install Embree (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          EMB="$GITHUB_WORKSPACE/embree"
+          BASE="https://github.com/RenderKit/embree/releases/download"
+          curl -fL -o embree.zip "$BASE/v$EMBREE_VERSION/embree-$EMBREE_VERSION.x64.windows.zip"
+          mkdir -p "$EMB"
+          unzip -q embree.zip -d "$EMB"
+          inner=$(find "$EMB" -maxdepth 1 -mindepth 1 -type d -name 'embree*' | head -n1)
+          [ -n "$inner" ] && cp -R "$inner"/* "$EMB/" || true
+          # GITHUB_ENV wants native (back-slash) paths on Windows.
+          echo "EMBREE_ROOT=$GITHUB_WORKSPACE\\embree" >> "$GITHUB_ENV"
+          echo "CMAKE_PREFIX_PATH=$GITHUB_WORKSPACE\\embree" >> "$GITHUB_ENV"
+
+      # Forward EMBREE_VERSION into the manylinux container for the
+      # before-all script.
+      - name: Configure cibuildwheel env passthrough (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: echo "CIBW_ENVIRONMENT_PASS_LINUX=EMBREE_VERSION" >> "$GITHUB_ENV"
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.21
+        # Per-platform config (build selection, Embree paths, repair commands)
+        # lives in [tool.cibuildwheel] in pyproject.toml.

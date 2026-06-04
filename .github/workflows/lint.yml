@@ -1,0 +1,161 @@
+name: lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  LLVM_VERSION: "20"
+
+jobs:
+  ruff:
+    name: ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # uv.lock is gitignored in this repo, so key the cache off pyproject.toml
+      # instead of the default **/uv.lock glob.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      # Lint-only deps -- skip the native extension build (scikit-build-core
+      # would otherwise require Embree just to install the editable package).
+      - name: Install dev dependencies
+        run: uv sync --only-group dev --no-install-project
+
+      # --no-sync: use the env from the previous step as-is. Without it,
+      # `uv run` would re-sync (including the project), which triggers a full
+      # native build via scikit-build-core and pulls in Embree as a dep.
+      - name: ruff check
+        run: uv run --no-sync ruff check .
+
+  mypy:
+    name: mypy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # uv.lock is gitignored in this repo, so key the cache off pyproject.toml
+      # instead of the default **/uv.lock glob.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      # mypy needs the project's runtime deps importable but not the compiled
+      # extension (ray_trace.py guards the import with `# type: ignore`).
+      - name: Install dependencies
+        run: |
+          uv sync --only-group dev --no-install-project
+          uv pip install "numpy>=1.26" "pillow>=10.0" "pyyaml>=6.0"
+
+      - name: mypy
+        run: uv run --no-sync mypy
+
+  clang-format:
+    name: clang-format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: |
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | sudo tee /etc/apt/trusted.gpg.d/llvm.asc > /dev/null
+          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-${LLVM_VERSION} main" \
+            | sudo tee /etc/apt/sources.list.d/llvm.list
+          sudo apt-get update
+          sudo apt-get install -y clang-format-${LLVM_VERSION}
+          sudo update-alternatives --install /usr/bin/clang-format clang-format \
+            /usr/bin/clang-format-${LLVM_VERSION} 100
+
+      - name: clang-format --dry-run --Werror
+        run: |
+          clang-format --version
+          clang-format --dry-run --Werror \
+            x7_renderer/bindings.cpp \
+            x7_renderer/src/*.hpp x7_renderer/src/*.cpp \
+            x7_renderer/tests/*.cpp
+
+  clang-tidy:
+    name: clang-tidy
+    runs-on: ubuntu-latest
+    env:
+      EMBREE_VERSION: "4.4.1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang-tidy + build tooling
+        run: |
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | sudo tee /etc/apt/trusted.gpg.d/llvm.asc > /dev/null
+          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-${LLVM_VERSION} main" \
+            | sudo tee /etc/apt/sources.list.d/llvm.list
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang-${LLVM_VERSION} clang-tidy-${LLVM_VERSION} \
+            cmake ninja-build
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # pybind11 headers for bindings.cpp.
+      - name: Install pybind11
+        run: pip install "pybind11>=2.12"
+
+      - name: Install Embree
+        run: |
+          EMB="$GITHUB_WORKSPACE/embree"
+          BASE="https://github.com/RenderKit/embree/releases/download"
+          curl -fL -o /tmp/embree.tar.gz \
+            "$BASE/v${EMBREE_VERSION}/embree-${EMBREE_VERSION}.x86_64.linux.tar.gz"
+          mkdir -p "$EMB"
+          tar -xzf /tmp/embree.tar.gz -C "$EMB"
+          # Point find_package straight at the CMake config dir so the search
+          # never has to guess between lib/ and lib64/.
+          EMBREE_CMAKE_DIR=$(find "$EMB" -type d -path '*/cmake/embree-*' | head -n1)
+          test -n "$EMBREE_CMAKE_DIR" || { echo "embree cmake dir not found"; exit 1; }
+          echo "EMBREE_ROOT=$EMB" >> "$GITHUB_ENV"
+          echo "embree_DIR=$EMBREE_CMAKE_DIR" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$EMB/lib64" >> "$GITHUB_ENV"
+
+      # Generate compile_commands.json with the same toolchain that runs tidy,
+      # so libc++/libstdc++ headers resolve consistently (the macOS Homebrew
+      # caveat in CLAUDE.md applies on Linux too: mixing compilers between
+      # the compile DB and clang-tidy produces phantom "file not found" errors).
+      - name: Configure CMake (compile DB)
+        env:
+          CC: clang-${{ env.LLVM_VERSION }}
+          CXX: clang++-${{ env.LLVM_VERSION }}
+        run: |
+          PYBIND11_DIR=$(python -c \
+            "import pybind11; print(pybind11.get_cmake_dir())")
+          cmake -S x7_renderer -B x7_renderer/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DBUILD_TESTING=OFF \
+            -DBUILD_PYTHON_MODULE=ON \
+            -DCMAKE_PREFIX_PATH="${PYBIND11_DIR}"
+
+      - name: clang-tidy
+        run: |
+          clang-tidy-${LLVM_VERSION} --version
+          clang-tidy-${LLVM_VERSION} -p x7_renderer/build --warnings-as-errors='*' \
+            x7_renderer/bindings.cpp \
+            x7_renderer/src/Mesh.cpp \
+            x7_renderer/src/Palette.cpp \
+            x7_renderer/src/RayTrace.cpp \
+            x7_renderer/src/Renderer.cpp

@@ -1,0 +1,40 @@
+# clang-tidy for the native C++ renderer.
+#
+# The src/ tree is copied near-verbatim from OpenRCT2's iso-render, so the check
+# set leans on correctness/performance families (bugprone, performance,
+# portability, the static analyzer) and stays away from stylistic churn that
+# would diverge from upstream: no readability-identifier-naming (the code mixes
+# PascalCase types, snake_case functions/members, and kCamelCase constants on
+# purpose), no cppcoreguidelines (the Embree interop relies on reinterpret_cast
+# and C arrays).
+#
+# Needs a compile DB:   clang-tidy -p native/build native/src/Renderer.cpp
+# (generate native/build via the `dev` CMake preset first).
+Checks: >
+  -*,
+  bugprone-*,
+  performance-*,
+  portability-*,
+  modernize-*,
+  clang-analyzer-*,
+  misc-*,
+  -bugprone-easily-swappable-parameters,
+  -modernize-use-trailing-return-type,
+  -modernize-avoid-c-arrays,
+  -modernize-use-nodiscard,
+  -modernize-use-designated-initializers,
+  -modernize-use-std-print,
+  -modernize-use-std-format,
+  -portability-avoid-pragma-once,
+  -misc-non-private-member-variables-in-classes,
+  -misc-no-recursion,
+  -misc-include-cleaner
+
+# Only diagnose our own headers, never Embree/pybind11/system headers.
+HeaderFilterRegex: 'native/(src|test)/.*\.(hpp|h)$'
+
+# Advisory locally and in CI; flip on per-invocation with --warnings-as-errors.
+WarningsAsErrors: ''
+
+# `clang-tidy --fix` reformats touched ranges with our .clang-format.
+FormatStyle: file

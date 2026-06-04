@@ -1,0 +1,22 @@
+uv.lock
+.idea/
+
+*.DS_Store
+
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+
+# scikit-build-core build artifacts
+build/
+wheelhouse/
+dist/
+*.so
+
+# CMake dev / IDE build trees + clangd cache
+x7_renderer/build/
+x7_renderer/cmake-build-*/
+x7_renderer/.cache/
+
+*.egg-info/

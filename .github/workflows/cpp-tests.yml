@@ -1,0 +1,56 @@
+name: cpp-tests
+
+# Build and run the x7_renderer GTest suite. Ubuntu-only -- the C++ source is
+# platform-agnostic and the other native-side jobs (clang-format, clang-tidy)
+# already run on Linux, so this matches.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  EMBREE_VERSION: "4.4.1"
+
+jobs:
+  gtest:
+    name: gtest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tooling + GTest
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libgtest-dev
+
+      - name: Install Embree
+        run: |
+          EMB="$GITHUB_WORKSPACE/embree"
+          BASE="https://github.com/RenderKit/embree/releases/download"
+          curl -fL -o /tmp/embree.tar.gz \
+            "$BASE/v${EMBREE_VERSION}/embree-${EMBREE_VERSION}.x86_64.linux.tar.gz"
+          mkdir -p "$EMB"
+          tar -xzf /tmp/embree.tar.gz -C "$EMB"
+          # Point find_package straight at the CMake config dir so the search
+          # never has to guess between lib/ and lib64/.
+          EMBREE_CMAKE_DIR=$(find "$EMB" -type d -path '*/cmake/embree-*' | head -n1)
+          test -n "$EMBREE_CMAKE_DIR" || { echo "embree cmake dir not found"; exit 1; }
+          echo "EMBREE_ROOT=$EMB" >> "$GITHUB_ENV"
+          echo "embree_DIR=$EMBREE_CMAKE_DIR" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$EMB/lib64" >> "$GITHUB_ENV"
+
+      # Mirrors the `dev` CMake preset: Debug build, tests on, Python module
+      # off (it'd otherwise drag in pybind11 + a Python install for no gain
+      # here -- the GTest binary links against _x7_renderer_core directly).
+      - name: Configure
+        run: |
+          cmake -S x7_renderer -B x7_renderer/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DBUILD_TESTING=ON \
+            -DBUILD_PYTHON_MODULE=OFF
+
+      - name: Build
+        run: cmake --build x7_renderer/build --target x7_tests
+
+      - name: Run tests
+        run: ctest --test-dir x7_renderer/build --output-on-failure

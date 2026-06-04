@@ -1,0 +1,45 @@
+# clang-format for the native C++ renderer (native/src, native/test, bindings.cpp).
+#
+# Tuned to the existing hand-written style rather than to impose a new one:
+# 4-space indent, indented namespace bodies, attached (K&R) braces, ~120-col
+# lines, and compact one-line short functions (the VectorMath helpers / struct
+# operators). Run from the repo with:  clang-format -i native/**/*.{hpp,cpp}
+---
+Language: Cpp
+BasedOnStyle: LLVM
+Standard: Latest
+
+ColumnLimit: 120
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+AccessModifierOffset: -4
+ContinuationIndentWidth: 4
+
+NamespaceIndentation: All
+FixNamespaceComments: true
+
+PointerAlignment: Left
+DerivePointerAlignment: false
+
+# Keep the one-statement helpers (Vector2::operator+, vector3(...), the trivial
+# .cpp wrappers) on a single line, matching the headers.
+AllowShortFunctionsOnASingleLine: All
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: true
+AllowShortBlocksOnASingleLine: Empty
+AllowShortCaseLabelsOnASingleLine: false
+
+AlignAfterOpenBracket: Align
+BinPackParameters: false
+BinPackArguments: true
+SpaceBeforeParens: ControlStatements
+
+# The math code leads continuation lines with the operator (the VectorMath
+# determinant / inverse, Renderer shading expressions). Keep that.
+BreakBeforeBinaryOperators: NonAssignment
+
+# Preserve the stdlib / embree / local include groups (blank-line separated);
+# sort only within each group.
+IncludeBlocks: Preserve
+SortIncludes: CaseSensitive
