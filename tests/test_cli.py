@@ -75,6 +75,26 @@ def test_make_context_scales_upt_in_test_mode():
     assert ctx.upt == pytest.approx(TEST_ZOOM * 16.0)
 
 
+def test_make_context_loads_remap_overrides_in_test_mode():
+    from openrct2_x7_renderer.remap import REMAP_COLOR_RAMPS
+
+    root = {"test_remap_colors": {"1": "bordeaux_red"}}
+    ctx = make_context(default_lights(), 16.0, test=True, root=root)
+    assert ctx.remap_overrides == {1: REMAP_COLOR_RAMPS["bordeaux_red"]}
+
+
+def test_make_context_ignores_remap_overrides_outside_test_mode():
+    # Real renders must keep their raw remap windows for OpenRCT2 to repaint.
+    root = {"test_remap_colors": {"1": "bordeaux_red"}}
+    ctx = make_context(default_lights(), 16.0, test=False, root=root)
+    assert ctx.remap_overrides == {}
+
+
+def test_make_context_without_root_has_no_overrides():
+    ctx = make_context(default_lights(), 16.0, test=True)
+    assert ctx.remap_overrides == {}
+
+
 # ---------- run_cli ----------
 
 

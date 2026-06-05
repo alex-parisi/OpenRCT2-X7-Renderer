@@ -343,6 +343,31 @@ to a preview PNG. Both accept absolute paths; relative paths are resolved
 against the config file's parent directory when a `base_dir` is passed to
 `load_meshes()` / `load_preview()` (the CLI does this automatically).
 
+#### Test-mode remap colours
+
+`Remap1`/`Remap2`/`Remap3` materials render into reserved palette windows that
+OpenRCT2 repaints to the player-chosen colour in-game, so they look wrong in a
+static preview. An optional `test_remap_colors` block recolours those windows in
+`--test` previews to show the repainted result. It is ignored outside test mode,
+so real renders keep the raw remap windows OpenRCT2 expects.
+
+```json
+{
+  "test_remap_colors": {
+    "1": "bordeaux_red",
+    "2": "dark_green",
+    "3": "yellow"
+  }
+}
+```
+
+Keys are remap regions (`1`–`3`); values are OpenRCT2 colour names (the 32
+standard colours, e.g. `grey`, `bright_red`, `teal`, `light_pink`). Any region
+you omit keeps its raw remap window. `make_context(..., root=root)` reads the
+block, and `Context.render_view` applies the substitution; the per-colour shade
+ramps in `openrct2_x7_renderer.remap` are taken from OpenRCT2's own palette-map
+sprites, so the preview matches the in-game repaint.
+
 ### Performance
 
 The renderer maintains a persistent thread pool for the lifetime of each
