@@ -187,6 +187,48 @@ def test_render_view_returns_indexed_image():
     assert img.pixels.dtype == np.uint8
 
 
+def _remappable_mesh(region: int):
+    mat = Material()
+    mat.flags = MaterialFlag.IS_REMAPPABLE
+    mat.region = region
+    mesh = _simple_mesh()
+    mesh.materials = [mat]
+    return mesh
+
+
+def test_render_view_recolours_remap_window_when_overrides_set():
+    from openrct2_x7_renderer.remap import REMAP_COLOR_RAMPS, REMAP_WINDOWS
+
+    ramp = REMAP_COLOR_RAMPS["bordeaux_red"]
+    ctx = Context(
+        lights=default_lights(), dither=False, upt=32.0, remap_overrides={1: ramp}
+    )
+    with ctx.begin_render() as scene:
+        scene.add_model(_remappable_mesh(1), np.eye(3, dtype=np.float64), np.zeros(3))
+        img = scene.finalize().render_view(VIEWS[0])
+
+    lit = img.pixels[img.pixels != 0]
+    assert lit.size > 0  # the triangle rendered something
+    window = set(range(REMAP_WINDOWS[1], REMAP_WINDOWS[1] + 12))
+    # No raw remap-window indices survive; every lit pixel is from the target ramp.
+    assert window.isdisjoint(set(lit.tolist()))
+    assert set(lit.tolist()).issubset(set(ramp))
+
+
+def test_render_view_leaves_remap_window_when_no_overrides():
+    from openrct2_x7_renderer.remap import REMAP_WINDOWS
+
+    ctx = _empty_context()  # no remap_overrides
+    with ctx.begin_render() as scene:
+        scene.add_model(_remappable_mesh(1), np.eye(3, dtype=np.float64), np.zeros(3))
+        img = scene.finalize().render_view(VIEWS[0])
+
+    lit = img.pixels[img.pixels != 0]
+    window = set(range(REMAP_WINDOWS[1], REMAP_WINDOWS[1] + 12))
+    # Untouched: a remappable material renders into its raw remap window.
+    assert set(lit.tolist()).issubset(window)
+
+
 def test_render_silhouette_returns_indexed_image():
     ctx = _empty_context()
     with ctx.begin_render() as scene:

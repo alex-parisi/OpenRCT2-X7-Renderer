@@ -11,6 +11,7 @@ from typing import Any
 from .config import LoadError, parse_config
 from .lights import default_lights, load_lights
 from .ray_trace import Context
+from .remap import load_remap_overrides
 from .types import Light
 
 TEST_ZOOM = 0.125
@@ -37,12 +38,24 @@ def output_directory_of(root: dict[str, Any]) -> Path:
     return Path(out) if isinstance(out, str) else Path(".")
 
 
-def make_context(lights: list[Light], units_per_tile: float, test: bool) -> Context:
+def make_context(
+    lights: list[Light],
+    units_per_tile: float,
+    test: bool,
+    root: dict[str, Any] | None = None,
+) -> Context:
     """Build a render Context whose camera scale is driven by the object's
     configured `units_per_tile`. Test mode scales ``upt`` down by ``TEST_ZOOM``
-    (0.125×), zooming in to show material detail in a single-viewpoint preview."""
+    (0.125×), zooming in to show material detail in a single-viewpoint preview.
+
+    In test mode, when ``root`` (the parsed config) is supplied, an optional
+    ``test_remap_colors`` block is read and applied to ``render_view`` output so
+    the preview shows repaint colours instead of the raw remap windows. Outside
+    test mode the overrides are ignored, so real renders keep their remap
+    windows intact for OpenRCT2 to repaint."""
     upt = TEST_ZOOM * units_per_tile if test else units_per_tile
-    return Context(lights=lights, dither=True, upt=upt)
+    overrides = load_remap_overrides(root) if (test and root is not None) else {}
+    return Context(lights=lights, dither=True, upt=upt, remap_overrides=overrides)
 
 
 def run_cli(prog: str, argv: list[str] | None, render: RenderFn) -> int:

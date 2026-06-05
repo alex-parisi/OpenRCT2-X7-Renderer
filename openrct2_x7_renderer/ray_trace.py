@@ -4,6 +4,7 @@ Thin Python wrapper around the native Embree-backed renderer.
 
 __all__ = ["Context", "FinalizedScene", "SceneBuilder", "VIEWS"]
 
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
@@ -11,6 +12,7 @@ import numpy as np
 from . import _x7_renderer as x7
 from .constants import TILE_SIZE, MaterialFlag
 from .mesh import Mesh
+from .remap import apply_remap_overrides
 from .types import IndexedImage, Light
 
 VIEWS: tuple[np.ndarray, ...] = (
@@ -86,8 +88,11 @@ class FinalizedScene:
             img = ready.render_view(view)
     """
 
-    def __init__(self, inner: x7.Context) -> None:
+    def __init__(
+        self, inner: x7.Context, remap_overrides: dict[int, tuple[int, ...]] | None = None
+    ) -> None:
         self._inner = inner
+        self._remap_overrides = remap_overrides or {}
 
     def __enter__(self) -> "FinalizedScene":
         return self
@@ -96,11 +101,22 @@ class FinalizedScene:
         self.end_render()
 
     def render_view(self, view: np.ndarray) -> IndexedImage:
-        """Render the scene under the given view rotation matrix."""
-        return _dict_to_image(
+        """Render the scene under the given view rotation matrix.
+
+        When the owning :class:`Context` was given ``remap_overrides`` (the
+        preview-only ``--test`` recolouring), the remap windows in the result
+        are rewritten to the chosen colour ramps; otherwise the image is
+        returned exactly as the renderer produced it.
+        """
+        image = _dict_to_image(
             self._inner.render_view(
                 view=np.ascontiguousarray(view, dtype=np.float32)
             )
+        )
+        if not self._remap_overrides:
+            return image
+        return replace(
+            image, pixels=apply_remap_overrides(image.pixels, self._remap_overrides)
         )
 
     def render_silhouette(self, view: np.ndarray) -> IndexedImage:
@@ -145,8 +161,11 @@ class SceneBuilder:
         ready.end_render()
     """
 
-    def __init__(self, inner: x7.Context) -> None:
+    def __init__(
+        self, inner: x7.Context, remap_overrides: dict[int, tuple[int, ...]] | None = None
+    ) -> None:
         self._inner = inner
+        self._remap_overrides = remap_overrides or {}
         self._finalized = False
 
     def add_model(
@@ -168,7 +187,7 @@ class SceneBuilder:
         """
         self._inner.finalize_render()
         self._finalized = True
-        return FinalizedScene(self._inner)
+        return FinalizedScene(self._inner, self._remap_overrides)
 
     def __enter__(self) -> "SceneBuilder":
         return self
@@ -194,14 +213,22 @@ class Context:
         dither: Whether Floyd-Steinberg dithering is applied when quantizing
             to the palette.
         upt: Camera scale as units-per-tile; smaller values zoom in.
+        remap_overrides: Preview-only ``{region: ramp}`` recolouring applied to
+            ``render_view`` output (see :mod:`~openrct2_x7_renderer.remap`).
+            Empty by default, so normal renders keep their raw remap windows.
     """
 
     def __init__(
-        self, lights: list[Light], dither: bool = True, upt: float = TILE_SIZE
+        self,
+        lights: list[Light],
+        dither: bool = True,
+        upt: float = TILE_SIZE,
+        remap_overrides: dict[int, tuple[int, ...]] | None = None,
     ) -> None:
         self.lights = lights
         self.dither = dither
         self.upt = upt
+        self.remap_overrides = remap_overrides or {}
         self._inner = x7.Context(lights=lights, dither=dither, upt=upt)
 
     def __repr__(self) -> str:
@@ -210,4 +237,4 @@ class Context:
     def begin_render(self) -> SceneBuilder:
         """Begin a new render pass; returns a :class:`SceneBuilder`."""
         self._inner.begin_render()
-        return SceneBuilder(self._inner)
+        return SceneBuilder(self._inner, self.remap_overrides)
