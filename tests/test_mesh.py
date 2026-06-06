@@ -32,6 +32,14 @@ def test_mask_flag():
     assert plain.flags & MaterialFlag.IS_MASK
 
 
+def test_visible_mask_flag_takes_precedence_over_mask_substring():
+    # "VisibleMask" contains "Mask" but must map to the visible-mask flag (it is rendered
+    # into the silhouette/occlusion pass), not the invisible-occluder IS_MASK flag.
+    mat = _classify("VisibleMask")
+    assert mat.flags & MaterialFlag.IS_VISIBLE_MASK
+    assert not (mat.flags & MaterialFlag.IS_MASK)
+
+
 def test_combined_modifier_flags():
     mat = _classify("ShinyMetal_Edge_NoAO")
     assert mat.flags & MaterialFlag.BACKGROUND_AA

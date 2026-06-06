@@ -103,7 +103,12 @@ def _classify_material_name(material: Material, name: str) -> None:
     elif "Front" in name:
         material.is_front = True
 
-    if "Mask" in name:
+    # "VisibleMask" must be tested before "Mask" (it contains the substring): a visible
+    # mask is rendered into the silhouette/occlusion pass, whereas a plain mask is an
+    # invisible occluder. Mirrors IsoRender's model.cpp material-flag parsing.
+    if "VisibleMask" in name:
+        material.flags |= MaterialFlag.IS_VISIBLE_MASK
+    elif "Mask" in name:
         material.flags |= MaterialFlag.IS_MASK
 
     if "NoAO" in name:
