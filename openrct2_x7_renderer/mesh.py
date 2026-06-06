@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
+from numpy.typing import NDArray
 from PIL import Image as PILImage
 
 from .constants import MaterialFlag
@@ -30,7 +31,7 @@ class Texture:
 
     width: int
     height: int
-    pixels: np.ndarray  # float32 (H, W, 3) linear-RGB
+    pixels: NDArray[np.float32]  # (H, W, 3) linear-RGB
 
 
 def load_texture(path: Path | str) -> Texture:
@@ -62,13 +63,15 @@ class Material:
     flags: int = 0
     region: int = 0
     specular_exponent: float = 50.0
-    specular_color: np.ndarray = field(
+    specular_color: NDArray[np.float64] = field(
         default_factory=lambda: np.array([0.5, 0.5, 0.5], dtype=np.float64)
     )
-    ambient_color: np.ndarray = field(
+    ambient_color: NDArray[np.float64] = field(
         default_factory=lambda: np.array([0.0, 0.0, 0.0], dtype=np.float64)
     )
-    color: np.ndarray = field(default_factory=lambda: np.array([0.5, 0.5, 0.5], dtype=np.float64))
+    color: NDArray[np.float64] = field(
+        default_factory=lambda: np.array([0.5, 0.5, 0.5], dtype=np.float64)
+    )
     texture: Texture | None = None
     # Wall-specific flags:
     is_glass: bool = False
@@ -192,11 +195,11 @@ class Mesh:
         materials: Material list; indices correspond to ``face_materials`` values.
     """
 
-    vertices: np.ndarray
-    normals: np.ndarray
-    uvs: np.ndarray
-    faces: np.ndarray
-    face_materials: np.ndarray
+    vertices: NDArray[np.float32]
+    normals: NDArray[np.float32]
+    uvs: NDArray[np.float32]
+    faces: NDArray[np.uint32]
+    face_materials: NDArray[np.uint32]
     materials: list[Material]
 
     @classmethod
@@ -212,7 +215,9 @@ class Mesh:
         )
 
 
-def _generate_normals(vertices: np.ndarray, faces: np.ndarray) -> np.ndarray:
+def _generate_normals(
+    vertices: NDArray[np.float64], faces: NDArray[np.uint32]
+) -> NDArray[np.float64]:
     """Area-weighted per-face normals accumulated at shared vertices, normalized to unit length."""
     normals = np.zeros_like(vertices)
     v0 = vertices[faces[:, 0]]
@@ -224,11 +229,11 @@ def _generate_normals(vertices: np.ndarray, faces: np.ndarray) -> np.ndarray:
     np.add.at(normals, faces[:, 2], face_normals)
     norms = np.linalg.norm(normals, axis=1)
     norms[norms == 0] = 1.0
-    result: np.ndarray = normals / norms[:, None]
+    result: NDArray[np.float64] = normals / norms[:, None]
     return result
 
 
-def load_mesh(filename: str | Path, transform: np.ndarray | None = None) -> Mesh:
+def load_mesh(filename: str | Path, transform: NDArray[np.float64] | None = None) -> Mesh:
     """Load an OBJ file (and the MTL libraries it references) into a Mesh.
 
     The OBJ is parsed into a vertex-deduplicated triangle mesh.  Polygons are

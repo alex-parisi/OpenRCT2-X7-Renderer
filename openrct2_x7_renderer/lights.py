@@ -8,6 +8,7 @@ import logging
 from typing import Any
 
 import numpy as np
+from numpy.typing import NDArray
 
 from .config import read_vector3, require_number, require_string
 from .constants import LightType
@@ -16,7 +17,7 @@ from .types import Light, LoadError
 _log = logging.getLogger(__name__)
 
 
-def _normalize(v: list[float] | np.ndarray) -> np.ndarray:
+def _normalize(v: list[float] | NDArray[np.float64]) -> NDArray[np.float64]:
     """Return the unit vector of ``v``.
 
     Raises:

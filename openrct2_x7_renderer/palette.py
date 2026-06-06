@@ -7,14 +7,15 @@ texture loading independently of the renderer.
 __all__ = ["PALETTE_RGB", "TRANSPARENT_INDEX", "srgb2linear"]
 
 import numpy as np
+from numpy.typing import NDArray
 
 from ._x7_renderer import palette_rgb as _native_palette_rgb
 
 TRANSPARENT_INDEX = 0
-PALETTE_RGB: np.ndarray = _native_palette_rgb()
+PALETTE_RGB: NDArray[np.uint8] = _native_palette_rgb()
 
 
-def srgb2linear(x: np.ndarray) -> np.ndarray:
+def srgb2linear(x: NDArray[np.float64]) -> NDArray[np.float64]:
     """Convert sRGB values in [0, 1] to linear light values using the IEC 61966-2-1 curve."""
     x = np.asarray(x, dtype=np.float64)
     out = np.empty_like(x)

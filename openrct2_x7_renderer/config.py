@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from numpy.typing import NDArray
 
 from .image import read_png
 from .mesh import Mesh, load_mesh
@@ -128,7 +129,7 @@ def optional_bool(obj: dict[str, Any], key: str, default: bool = False) -> bool:
     return v
 
 
-def read_vector3(arr: Any) -> np.ndarray:
+def read_vector3(arr: Any) -> NDArray[np.float64]:
     """Parse a 3-element list into a float64 ``(3,)`` array, raising LoadError on bad input."""
     if not isinstance(arr, list) or len(arr) != 3:
         raise LoadError("Vector must be an array of 3 numbers")

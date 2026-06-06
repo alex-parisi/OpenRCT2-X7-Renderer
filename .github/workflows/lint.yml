@@ -6,7 +6,7 @@ on:
   pull_request:
 
 env:
-  LLVM_VERSION: "20"
+  LLVM_VERSION: "22"
 
 jobs:
   ruff:
@@ -97,13 +97,6 @@ jobs:
             clang-${LLVM_VERSION} clang-tidy-${LLVM_VERSION} \
             cmake ninja-build
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install pybind11
-        run: pip install "pybind11>=3.0"
-
       - uses: ./.github/actions/install-embree-linux
         with:
           version: ${{ env.EMBREE_VERSION }}
@@ -113,20 +106,16 @@ jobs:
           CC: clang-${{ env.LLVM_VERSION }}
           CXX: clang++-${{ env.LLVM_VERSION }}
         run: |
-          PYBIND11_DIR=$(python -c \
-            "import pybind11; print(pybind11.get_cmake_dir())")
           cmake -S x7_renderer -B x7_renderer/build -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DBUILD_TESTING=OFF \
-            -DBUILD_PYTHON_MODULE=ON \
-            -DCMAKE_PREFIX_PATH="${PYBIND11_DIR}"
+            -DBUILD_PYTHON_MODULE=OFF
 
       - name: clang-tidy
         run: |
           clang-tidy-${LLVM_VERSION} --version
           clang-tidy-${LLVM_VERSION} -p x7_renderer/build --warnings-as-errors='*' \
-            x7_renderer/bindings.cpp \
             x7_renderer/src/Mesh.cpp \
             x7_renderer/src/Palette.cpp \
             x7_renderer/src/RayTrace.cpp \

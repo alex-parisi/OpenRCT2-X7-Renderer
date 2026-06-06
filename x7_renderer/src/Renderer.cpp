@@ -65,8 +65,9 @@ namespace RCTGen {
         constexpr unsigned int kMaxThreads = 256;
         unsigned int worker_count = std::min(std::max(1u, std::thread::hardware_concurrency()), kMaxThreads);
         if (const char* env = std::getenv("OPENRCT2_X7_NUM_THREADS")) {
-            const int n = std::atoi(env);
-            if (n > 0) worker_count = std::min(static_cast<unsigned int>(n), kMaxThreads);
+            char* end = nullptr;
+            const long n = std::strtol(env, &end, 10);
+            if (end != env && n > 0) worker_count = std::min(static_cast<unsigned int>(n), kMaxThreads);
         }
         ctx.thread_pool = std::make_unique<ThreadPool>(worker_count);
     }

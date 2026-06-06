@@ -28,6 +28,7 @@ __all__ = [
 from typing import Any
 
 import numpy as np
+from numpy.typing import NDArray
 
 from .types import LoadError
 
@@ -120,8 +121,8 @@ def load_remap_overrides(root: dict[str, Any]) -> dict[int, tuple[int, ...]]:
 
 
 def apply_remap_overrides(
-    pixels: np.ndarray, overrides: dict[int, tuple[int, ...]]
-) -> np.ndarray:
+    pixels: NDArray[np.uint8], overrides: dict[int, tuple[int, ...]]
+) -> NDArray[np.uint8]:
     """Return a copy of ``pixels`` with each overridden region's remap window
     rewritten to the corresponding shade of the chosen colour ramp.
 

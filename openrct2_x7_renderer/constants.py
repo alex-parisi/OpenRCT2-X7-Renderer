@@ -11,6 +11,7 @@ imported here from the compiled extension so there is a single source of truth.
 __all__ = [
     "LightType",
     "MaterialFlag",
+    "MAX_FRAMES",
     "MeshFlag",
     "TILE_SIZE",
 ]
@@ -98,3 +99,7 @@ class LightType(IntEnum):
 
 
 TILE_SIZE = 3.3
+
+# Maximum animation frames per mesh placement. Governs the MeshFrame array
+# length used by the vehicle restraint-animation system.
+MAX_FRAMES = 4

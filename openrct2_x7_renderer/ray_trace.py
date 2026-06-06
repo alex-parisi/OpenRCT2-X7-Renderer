@@ -8,6 +8,7 @@ from dataclasses import replace
 from typing import Any
 
 import numpy as np
+from numpy.typing import NDArray
 
 from . import _x7_renderer as x7
 from .constants import TILE_SIZE, MaterialFlag
@@ -15,7 +16,7 @@ from .mesh import Mesh
 from .remap import apply_remap_overrides
 from .types import IndexedImage, Light
 
-VIEWS: tuple[np.ndarray, ...] = (
+VIEWS: tuple[NDArray[np.float64], ...] = (
     np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=np.float64),    # NE
     np.array([[0, 0, 1], [0, 1, 0], [-1, 0, 0]], dtype=np.float64),   # NW
     np.array([[-1, 0, 0], [0, 1, 0], [0, 0, -1]], dtype=np.float64),  # SW
@@ -56,8 +57,8 @@ def _dict_to_image(d: dict[str, Any]) -> IndexedImage:
 def _add_mesh_to_native(
     inner: x7.Context,
     mesh: Mesh,
-    matrix: np.ndarray,
-    translation: np.ndarray,
+    matrix: NDArray[np.float64],
+    translation: NDArray[np.float64],
     mask: int,
 ) -> None:
     """Push a Mesh into the native renderer context."""
@@ -93,6 +94,7 @@ class FinalizedScene:
     ) -> None:
         self._inner = inner
         self._remap_overrides = remap_overrides or {}
+        self._ended = False
 
     def __enter__(self) -> "FinalizedScene":
         return self
@@ -100,7 +102,7 @@ class FinalizedScene:
     def __exit__(self, *_: object) -> None:
         self.end_render()
 
-    def render_view(self, view: np.ndarray) -> IndexedImage:
+    def render_view(self, view: NDArray[np.float64]) -> IndexedImage:
         """Render the scene under the given view rotation matrix.
 
         When the owning :class:`Context` was given ``remap_overrides`` (the
@@ -119,7 +121,7 @@ class FinalizedScene:
             image, pixels=apply_remap_overrides(image.pixels, self._remap_overrides)
         )
 
-    def render_silhouette(self, view: np.ndarray) -> IndexedImage:
+    def render_silhouette(self, view: NDArray[np.float64]) -> IndexedImage:
         """Render a solid silhouette of the scene under ``view``.
 
         Every hit pixel is shaded as flat mid-gray and quantized to the nearest
@@ -133,7 +135,10 @@ class FinalizedScene:
         )
 
     def end_render(self) -> None:
-        """Release render resources for this pass."""
+        """Release render resources for this pass (idempotent)."""
+        if self._ended:
+            return
+        self._ended = True
         self._inner.end_render()
 
 
@@ -171,8 +176,8 @@ class SceneBuilder:
     def add_model(
         self,
         mesh: Mesh,
-        matrix: np.ndarray,
-        translation: np.ndarray,
+        matrix: NDArray[np.float64],
+        translation: NDArray[np.float64],
         mask: int = 0,
     ) -> "SceneBuilder":
         """Add a mesh to the scene. Returns ``self`` for chaining."""

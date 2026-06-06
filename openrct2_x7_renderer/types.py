@@ -5,6 +5,7 @@ Rendering primitives shared by the vehicle and scenery generators.
 from dataclasses import dataclass, field
 
 import numpy as np
+from numpy.typing import NDArray
 
 
 class LoadError(Exception):
@@ -23,8 +24,8 @@ class MeshFrame:
     """
 
     mesh_index: int = -1
-    position: np.ndarray = field(default_factory=lambda: np.zeros(3, dtype=np.float64))
-    orientation: np.ndarray = field(default_factory=lambda: np.zeros(3, dtype=np.float64))
+    position: NDArray[np.float64] = field(default_factory=lambda: np.zeros(3, dtype=np.float64))
+    orientation: NDArray[np.float64] = field(default_factory=lambda: np.zeros(3, dtype=np.float64))
 
 
 @dataclass
@@ -55,7 +56,7 @@ class IndexedImage:
     height: int
     x_offset: int
     y_offset: int
-    pixels: np.ndarray  # uint8 (height, width)
+    pixels: NDArray[np.uint8]  # (height, width)
 
     @classmethod
     def blank(cls, width: int, height: int, x_offset: int = 0, y_offset: int = 0) -> "IndexedImage":
@@ -83,5 +84,5 @@ class Light:
 
     type: int
     shadow: bool
-    direction: np.ndarray
+    direction: NDArray[np.float64]
     intensity: float
