@@ -264,6 +264,15 @@ def test_finalized_scene_explicit_end_render():
     ready.end_render()
 
 
+def test_finalized_scene_end_render_is_idempotent():
+    # Calling end_render twice must be a no-op the second time (the `_ended`
+    # guard), not an error.
+    ctx = _empty_context()
+    ready = ctx.begin_render().finalize()
+    ready.end_render()
+    ready.end_render()
+
+
 def test_finalized_scene_as_context_manager():
     # FinalizedScene.__enter__ / __exit__ — end_render is called automatically.
     ctx = _empty_context()
