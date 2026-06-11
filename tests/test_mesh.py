@@ -40,6 +40,12 @@ def test_visible_mask_flag_takes_precedence_over_mask_substring():
     assert not (mat.flags & MaterialFlag.IS_MASK)
 
 
+def test_ghost_material_defaults_off_and_is_named():
+    assert Material().is_ghost is False
+    assert _classify("PreviewGhost").is_ghost
+    assert not _classify("Solid").is_ghost
+
+
 def test_combined_modifier_flags():
     mat = _classify("ShinyMetal_Edge_NoAO")
     assert mat.flags & MaterialFlag.BACKGROUND_AA

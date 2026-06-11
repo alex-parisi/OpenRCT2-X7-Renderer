@@ -1,10 +1,12 @@
 """Tests for the multi-tile (large scenery) geometry baking utilities."""
 
 import numpy as np
+from openrct2_x7_renderer.constants import MeshFlag
 from openrct2_x7_renderer.geometry import (
     assign_faces_to_tiles,
     combine_model_world,
     face_centroids,
+    split_mesh_by_ghost,
     subset_mesh,
 )
 from openrct2_x7_renderer.mesh import Material, Mesh
@@ -144,3 +146,69 @@ def test_subset_mesh_empty_mask():
     assert sub.faces.shape == (0, 3)
     # Material list is preserved even when no faces remain.
     assert sub.materials == mesh.materials
+
+
+def _two_face_mesh(ghost_flags):
+    """A 2-triangle mesh; face i uses material i, whose is_ghost = ghost_flags[i]."""
+    return Mesh(
+        vertices=np.zeros((6, 3), dtype=np.float32),
+        normals=np.tile([0.0, 0.0, 1.0], (6, 1)).astype(np.float32),
+        uvs=np.zeros((6, 2), dtype=np.float32),
+        faces=np.array([[0, 1, 2], [3, 4, 5]], dtype=np.uint32),
+        face_materials=np.array([0, 1], dtype=np.uint32),
+        materials=[Material(is_ghost=g) for g in ghost_flags],
+    )
+
+
+def test_split_mesh_by_ghost_no_ghost_is_passthrough():
+    mesh = _two_face_mesh([False, False])
+    out = split_mesh_by_ghost(mesh, base_mask=2)
+    # Uniform-solid meshes are returned as-is (same object) with the base mask.
+    assert len(out) == 1
+    assert out[0][0] is mesh
+    assert out[0][1] == 2
+
+
+def test_split_mesh_by_ghost_all_ghost_keeps_one_model():
+    mesh = _two_face_mesh([True, True])
+    out = split_mesh_by_ghost(mesh)
+    assert len(out) == 1
+    assert out[0][0] is mesh
+    assert out[0][1] == int(MeshFlag.GHOST)
+
+
+def test_split_mesh_by_ghost_mixed_splits_solid_and_ghost():
+    mesh = _two_face_mesh([False, True])
+    out = split_mesh_by_ghost(mesh, base_mask=4)
+    assert len(out) == 2
+    (solid, solid_mask), (ghost, ghost_mask) = out
+    assert solid_mask == 4
+    assert ghost_mask == 4 | int(MeshFlag.GHOST)
+    # Each half keeps exactly its one triangle.
+    assert solid.faces.shape == (1, 3)
+    assert ghost.faces.shape == (1, 3)
+
+
+def test_split_mesh_by_ghost_empty_mesh():
+    empty = Mesh.empty()
+    out = split_mesh_by_ghost(empty, base_mask=1)
+    assert len(out) == 1
+    assert out[0][0] is empty
+    assert out[0][1] == 1
+
+
+def test_split_mesh_by_ghost_material_less_mesh_is_passthrough():
+    # A material-less mesh (e.g. an OBJ with no usemtl) has face_materials that
+    # index an empty list; it must pass through untouched, not raise.
+    mesh = Mesh(
+        vertices=np.zeros((3, 3), dtype=np.float32),
+        normals=np.tile([0.0, 0.0, 1.0], (3, 1)).astype(np.float32),
+        uvs=np.zeros((3, 2), dtype=np.float32),
+        faces=np.array([[0, 1, 2]], dtype=np.uint32),
+        face_materials=np.array([0], dtype=np.uint32),
+        materials=[],
+    )
+    out = split_mesh_by_ghost(mesh, base_mask=3)
+    assert len(out) == 1
+    assert out[0][0] is mesh
+    assert out[0][1] == 3

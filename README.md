@@ -204,6 +204,7 @@ behaviour. Keywords are matched by substring, case-sensitive:
 | `Greyscale` | Use palette region 4 (greyscale remap) |
 | `Peep` | Use palette region 5 (peep skin remap) |
 | `Glass` | Render in the translucent glass pass |
+| `Ghost` | Ghost geometry: primary rays trace through it (not drawn) but it still contributes to the silhouette/occlusion pass |
 | `Back` | Included only in rear-wall sprite blocks |
 | `Front` | Included only in front-wall sprite blocks |
 | `Mask` | Treated as a visibility mask (`MaterialFlag.IS_MASK`) |

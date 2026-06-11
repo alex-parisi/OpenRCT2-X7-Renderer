@@ -11,6 +11,7 @@ __all__ = [
     "rotate_x",
     "rotate_y",
     "rotate_z",
+    "split_mesh_by_ghost",
     "subset_mesh",
 ]
 
@@ -19,6 +20,7 @@ import math
 import numpy as np
 from numpy.typing import NDArray
 
+from .constants import MeshFlag
 from .mesh import Material, Mesh
 from .types import Model
 
@@ -144,3 +146,32 @@ def subset_mesh(mesh: Mesh, face_mask: NDArray[np.bool_]) -> Mesh:
         face_materials=mesh.face_materials[face_mask].astype(np.uint32),
         materials=mesh.materials,
     )
+
+
+def split_mesh_by_ghost(mesh: Mesh, base_mask: int = 0) -> list[tuple[Mesh, int]]:
+    """Split a mesh into ``(sub-mesh, MeshFlag mask)`` pairs by ``Material.is_ghost``.
+
+    Faces whose material is a ghost get ``base_mask | MeshFlag.GHOST`` so the
+    renderer traces through them (silhouette/occlusion only); the rest keep
+    ``base_mask``. Returns a single pair when the mesh is empty or uniform (wholly
+    ghost or wholly solid), so non-ghost callers are unaffected.
+    """
+    n = int(mesh.faces.shape[0])
+    # No faces, or a material-less mesh (e.g. an OBJ with no ``usemtl``, whose
+    # face_materials index an empty list): nothing can be ghost.
+    if n == 0 or not mesh.materials:
+        return [(mesh, base_mask)]
+    ghost = np.fromiter(
+        (mesh.materials[m].is_ghost for m in mesh.face_materials),
+        dtype=bool,
+        count=n,
+    )
+    if not ghost.any():
+        return [(mesh, base_mask)]
+    ghost_mask = base_mask | int(MeshFlag.GHOST)
+    if ghost.all():
+        return [(mesh, ghost_mask)]
+    return [
+        (subset_mesh(mesh, ~ghost), base_mask),
+        (subset_mesh(mesh, ghost), ghost_mask),
+    ]

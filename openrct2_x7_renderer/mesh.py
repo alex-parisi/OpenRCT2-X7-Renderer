@@ -58,6 +58,10 @@ class Material:
         is_glass: True for glass materials rendered in a separate translucent pass.
         is_back: True for faces that appear only in the rear wall sprite block.
         is_front: True for faces that appear only in the front wall sprite block.
+        is_ghost: True for "ghost" faces — geometry that primary rays trace
+            through (so it is not drawn) while still contributing to the
+            silhouette/occlusion pass. Honoured by splitting these faces into a
+            ``MeshFlag.GHOST`` model at scene-build time.
     """
 
     flags: int = 0
@@ -77,6 +81,8 @@ class Material:
     is_glass: bool = False
     is_back: bool = False
     is_front: bool = False
+    # Render-time ghost classification (split into a MeshFlag.GHOST model).
+    is_ghost: bool = False
 
 
 def _classify_material_name(material: Material, name: str) -> None:
@@ -97,6 +103,9 @@ def _classify_material_name(material: Material, name: str) -> None:
 
     if "Glass" in name:
         material.is_glass = True
+
+    if "Ghost" in name:
+        material.is_ghost = True
 
     if "Back" in name:
         material.is_back = True
