@@ -158,11 +158,15 @@ namespace RCTGen {
             return static_cast<float>(h >> 8) * (1.0f / 16777216.0f);
         }
 
-        bool SceneSamplePoint(
-            Scene& scene, Vector2 point, Matrix3 camera, const std::vector<Light>& lights, Fragment& fragment) {
+        bool SceneSamplePoint(Scene& scene,
+                              Vector2 point,
+                              Matrix3 camera,
+                              float ray_start_z,
+                              const std::vector<Light>& lights,
+                              Fragment& fragment) {
             RayHit hit{};
             Vector3 view_vector = matrix_vector(camera, vector3(0, 0, -1));
-            if (scene_trace_ray(scene, matrix_vector(camera, vector3(point.x, point.y, -512)),
+            if (scene_trace_ray(scene, matrix_vector(camera, vector3(point.x, point.y, ray_start_z)),
                                 vector3_mult(view_vector, -1), hit)) {
                 view_vector = vector3_normalize(view_vector);
                 const Mesh* mesh = scene.meshes[hit.mesh_index];
@@ -265,10 +269,10 @@ namespace RCTGen {
             }
         };
 
-        MaterialSample SceneSampleMaterial(Scene& scene, Vector2 point, Matrix3 camera) {
+        MaterialSample SceneSampleMaterial(Scene& scene, Vector2 point, Matrix3 camera, float ray_start_z) {
             RayHit hit{};
             Vector3 const view_vector = matrix_vector(camera, vector3(0, 0, -1));
-            if (scene_trace_ray(scene, matrix_vector(camera, vector3(point.x, point.y, -512)),
+            if (scene_trace_ray(scene, matrix_vector(camera, vector3(point.x, point.y, ray_start_z)),
                                 vector3_mult(view_vector, -1), hit)) {
                 const Mesh* mesh = scene.meshes[hit.mesh_index];
                 const Face& face = mesh->faces[hit.face_index];
@@ -291,13 +295,8 @@ namespace RCTGen {
                             static_cast<int>(std::max(static_cast<float>(r.y_upper), std::ceil(y))));
         }
 
-        Rect SceneGetBounds(Scene& scene, Matrix3 camera) {
-            // An empty scene leaves the min/max extents at +/-infinity, and casting
-            // those (or the NaNs they produce when projected) to int is undefined
-            // behaviour.  Return the same margin a single point at the origin would
-            // produce instead.
-            if (scene.x_min > scene.x_max) return MakeRect(-1, 1, -1, 1);
-            const std::array<Vector3, 8> bounding_points = {{
+        std::array<Vector3, 8> SceneBoundingCorners(const Scene& scene) {
+            return {{
                 vector3(scene.x_min, scene.y_min, scene.z_min),
                 vector3(scene.x_max, scene.y_min, scene.z_min),
                 vector3(scene.x_min, scene.y_max, scene.z_min),
@@ -307,6 +306,26 @@ namespace RCTGen {
                 vector3(scene.x_min, scene.y_max, scene.z_max),
                 vector3(scene.x_max, scene.y_max, scene.z_max),
             }};
+        }
+
+        float SceneGetRayStartZ(Scene& scene, Matrix3 camera) {
+            // Camera rays march from this screen-space depth towards the scene, so
+            // it must lie in front of all geometry. Screen depth scales with
+            // 1/upt, so a fixed constant gets overtaken once the scene is large or
+            // the camera zoomed in; derive it from the projected bounding box.
+            if (scene.x_min > scene.x_max) return -512.0f;
+            float z_min = std::numeric_limits<float>::infinity();
+            for (const Vector3& bp : SceneBoundingCorners(scene)) z_min = std::min(z_min, matrix_vector(camera, bp).z);
+            return z_min - 2.0f;
+        }
+
+        Rect SceneGetBounds(Scene& scene, Matrix3 camera) {
+            // An empty scene leaves the min/max extents at +/-infinity, and casting
+            // those (or the NaNs they produce when projected) to int is undefined
+            // behaviour.  Return the same margin a single point at the origin would
+            // produce instead.
+            if (scene.x_min > scene.x_max) return MakeRect(-1, 1, -1, 1);
+            const std::array<Vector3, 8> bounding_points = SceneBoundingCorners(scene);
 
             Vector3 const first_screen = matrix_vector(camera, bounding_points[0]);
             Rect bounds =
@@ -401,6 +420,7 @@ namespace RCTGen {
             Matrix3 const camera = matrix_mult(ctx.projection, view);
 
             Rect const bounds = SceneGetBounds(*ctx.rt_scene, camera);
+            float const ray_start_z = SceneGetRayStartZ(*ctx.rt_scene, camera);
 
             Framebuffer framebuffer;
             framebuffer.width = static_cast<std::uint32_t>(bounds.x_upper - bounds.x_lower + 1);
@@ -435,7 +455,7 @@ namespace RCTGen {
                     int region = kFragmentUnused;
                     float depth = std::numeric_limits<float>::infinity();
                     bool mask = false;
-                    auto center = SceneSampleMaterial(*ctx.rt_scene, sample_point, camera_inverse);
+                    auto center = SceneSampleMaterial(*ctx.rt_scene, sample_point, camera_inverse, ray_start_z);
                     float const ghost_depth = center.ghost_depth;
                     if (center) {
                         mask = center.is_mask;
@@ -456,10 +476,11 @@ namespace RCTGen {
 
                             if (!silhouette) {
                                 SceneSamplePoint(*ctx.rt_scene, vector2_add(sample_point, subsample_point),
-                                                 camera_inverse, transformed_lights, sub_frag);
+                                                 camera_inverse, ray_start_z, transformed_lights, sub_frag);
                             } else {
-                                auto sub = SceneSampleMaterial(
-                                    *ctx.rt_scene, vector2_add(sample_point, subsample_point), camera_inverse);
+                                auto sub =
+                                    SceneSampleMaterial(*ctx.rt_scene, vector2_add(sample_point, subsample_point),
+                                                        camera_inverse, ray_start_z);
                                 sub_frag.ghost_depth = sub.ghost_depth;
                                 if (sub) {
                                     sub_frag.color = vector3(0.5f, 0.5f, 0.5f);

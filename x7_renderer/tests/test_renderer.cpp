@@ -184,6 +184,27 @@ TEST_F(RendererTest, RenderWithTranslation) {
     context_end_render(ctx);
 }
 
+TEST_F(RendererTest, RenderGeometryFarTowardsCamera) {
+    // Geometry whose screen-space depth lies in front of the old fixed -512
+    // ray-start plane (large scenes / zoomed-in cameras). The ray start must
+    // adapt to the scene bounds or these pixels silently vanish.
+    auto data = TestMeshData::make_triangle();
+    context_begin_render(ctx);
+    // Towards the camera is -x/-z: ~693 screen-depth units in front at upt 32.
+    context_add_model(ctx, data.mesh, transform(matrix_identity(), vector3(-400, 0, -400)));
+    context_finalize_render(ctx);
+    Image img = context_render_view(ctx, views[0]);
+    bool has_nonzero = false;
+    for (auto px : img.pixels) {
+        if (px != 0) {
+            has_nonzero = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(has_nonzero);
+    context_end_render(ctx);
+}
+
 TEST_F(RendererTest, RenderMultipleModels) {
     auto data1 = TestMeshData::make_triangle();
     auto data2 = TestMeshData::make_triangle();
