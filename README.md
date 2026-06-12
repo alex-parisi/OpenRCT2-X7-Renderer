@@ -261,8 +261,8 @@ preview = quantize_to_indexed("photo.jpg", size=PREVIEW_SIZE)
 ```
 
 `quantize_to_indexed` resizes with Lanczos resampling, Floyd-Steinberg dithers
-into the non-remap palette range (indices 10–236), and maps alpha < 128 to
-transparent.
+into the safe palette ranges (indices 10–201, 214–226, and 240–242 — excluding
+the remap windows and animated colours), and maps alpha < 128 to transparent.
 
 ### Geometry helpers
 

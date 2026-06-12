@@ -292,6 +292,11 @@ namespace RCTGen {
         }
 
         Rect SceneGetBounds(Scene& scene, Matrix3 camera) {
+            // An empty scene leaves the min/max extents at +/-infinity, and casting
+            // those (or the NaNs they produce when projected) to int is undefined
+            // behaviour.  Return the same margin a single point at the origin would
+            // produce instead.
+            if (scene.x_min > scene.x_max) return MakeRect(-1, 1, -1, 1);
             const std::array<Vector3, 8> bounding_points = {{
                 vector3(scene.x_min, scene.y_min, scene.z_min),
                 vector3(scene.x_max, scene.y_min, scene.z_min),
@@ -327,8 +332,10 @@ namespace RCTGen {
                         if (found_pixel)
                             bounds = RectEnclosePoint(bounds, static_cast<float>(x), static_cast<float>(y));
                         else {
-                            bounds = MakeRect(static_cast<int>(x), static_cast<int>(x) + 1, static_cast<int>(y),
-                                              static_cast<int>(y) + 1);
+                            // Inclusive bounds, matching RectEnclosePoint: x_upper/y_upper
+                            // are the last used pixel, not one past it.
+                            bounds = MakeRect(static_cast<int>(x), static_cast<int>(x), static_cast<int>(y),
+                                              static_cast<int>(y));
                             found_pixel = true;
                         }
                     }
@@ -358,8 +365,8 @@ namespace RCTGen {
 
                 for (int x = start; x != stop; x += step) {
                     Fragment& fragment = framebuffer.fragments[x + y * framebuffer.width];
-                    fragment.color = vector_from_color(color_from_vector(fragment.color));
                     if (fragment.region != kFragmentUnused) {
+                        fragment.color = vector_from_color(color_from_vector(fragment.color));
                         PaletteResult const pr =
                             PaletteGetNearest(palette, fragment.region & kRegionMask, fragment.color);
                         image.pixels[static_cast<std::size_t>(x - bounding_box.x_lower)

@@ -28,15 +28,22 @@ def _materials_to_dicts(mesh: Mesh) -> list[dict[str, Any]]:
     """Serialize a Mesh's materials into the dict format expected by the native renderer."""
     out: list[dict[str, Any]] = []
     for mat in mesh.materials:
+        # The native renderer reads "texture" whenever HAS_TEXTURE is set, so a
+        # material carrying the flag without an actual texture must have the
+        # flag cleared rather than crash the C++ side with a missing key.
+        texture = mat.texture if mat.flags & MaterialFlag.HAS_TEXTURE else None
+        flags = int(mat.flags)
+        if texture is None:
+            flags &= ~MaterialFlag.HAS_TEXTURE
         d: dict[str, Any] = {
-            "flags": int(mat.flags),
+            "flags": flags,
             "region": int(mat.region),
             "specular_exponent": float(mat.specular_exponent),
             "specular_color": tuple(float(c) for c in mat.specular_color),
             "ambient_color": tuple(float(c) for c in mat.ambient_color),
         }
-        if (mat.flags & MaterialFlag.HAS_TEXTURE) and mat.texture is not None:
-            d["texture"] = mat.texture.pixels.astype(np.float32, copy=False)
+        if texture is not None:
+            d["texture"] = texture.pixels.astype(np.float32, copy=False)
         else:
             d["color"] = tuple(float(c) for c in mat.color)
         out.append(d)

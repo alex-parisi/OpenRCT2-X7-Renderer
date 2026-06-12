@@ -376,15 +376,18 @@ def load_mesh(filename: str | Path, transform: NDArray[np.float64] | None = None
     out_face_materials: list[int] = []
 
     has_any_normal_input = nvn > 0
+    warned_missing_vt = False
 
     for mat_idx, tri in raw_faces:
         face_idx = []
         for v_idx, vt_idx, vn_idx in tri:
             vr = resolve(v_idx, nv)
-            if vt_idx != 0 and nvt == 0:
+            if vt_idx != 0 and nvt == 0 and not warned_missing_vt:
+                # Warn once per file, not once per face vertex.
+                warned_missing_vt = True
                 _log.warning(
                     "Face in %s references texture coordinate %d but no vt entries are defined"
-                    " — UV will default to (0, 0)",
+                    " — UVs will default to (0, 0)",
                     path,
                     vt_idx,
                 )

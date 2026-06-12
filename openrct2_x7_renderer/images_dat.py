@@ -37,6 +37,11 @@ def write_images_dat(images: list[IndexedImage], out_path: Path) -> None:
                 f"Image {i}: width ({img.width}) and height ({img.height}) "
                 f"must fit in an unsigned 16-bit integer"
             )
+        if not (-32768 <= img.x_offset <= 32767 and -32768 <= img.y_offset <= 32767):
+            raise ValueError(
+                f"Image {i}: x_offset ({img.x_offset}) and y_offset ({img.y_offset}) "
+                f"must fit in a signed 16-bit integer"
+            )
         pixels = img.pixels.tobytes()  # uint8 (H, W) row-major
         offsets.append(cur)
         chunks.append(pixels)

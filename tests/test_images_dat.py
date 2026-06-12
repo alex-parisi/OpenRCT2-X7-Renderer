@@ -77,3 +77,12 @@ def test_images_dat_rejects_oversized_dimensions(tmp_path):
     oversized = _img(65536, 1, 0, 0, 0)
     with pytest.raises(ValueError, match="unsigned 16-bit"):
         write_images_dat([oversized], out)
+
+
+def test_images_dat_rejects_out_of_range_offsets(tmp_path):
+    import pytest
+
+    out = tmp_path / "images.dat"
+    bad_offset = _img(1, 1, 40000, 0, 0)
+    with pytest.raises(ValueError, match="signed 16-bit"):
+        write_images_dat([bad_offset], out)

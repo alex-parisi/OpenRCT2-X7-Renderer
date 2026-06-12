@@ -46,20 +46,40 @@ def test_read_png_rejects_non_paletted(tmp_path):
         read_png(path)
 
 
+def _allowed_quantize_indices():
+    from openrct2_x7_renderer.image import _QUANTIZE_RANGES
+
+    allowed = set()
+    for first, last in _QUANTIZE_RANGES:
+        allowed.update(range(first, last + 1))
+    return allowed
+
+
 def test_quantize_resizes_within_bounds(tmp_path):
     path = tmp_path / "big.png"
     PILImage.new("RGB", (400, 200), (120, 60, 30)).save(path)
     out = quantize_to_indexed(path, size=112)
     assert out.width <= 112
     assert out.height <= 112
-    # A solid colour must not land in the transparent/remap-reserved ranges.
-    assert out.pixels.min() >= 10
-    assert out.pixels.max() <= 236
+    # A solid colour must only use the safe quantization ranges.
+    assert set(out.pixels.flatten().tolist()) <= _allowed_quantize_indices()
+
+
+def test_quantize_never_uses_remap_or_animated_indices(tmp_path):
+    # A noisy image spanning the full colour space must avoid the reserved
+    # entries: transparent/special (0-9), remap windows (202-213, 243-254),
+    # and animated water/flashing colours (227-239).
+    rng = np.random.default_rng(1234)
+    noise = rng.integers(0, 256, size=(64, 64, 3), dtype=np.uint8)
+    path = tmp_path / "noise.png"
+    PILImage.fromarray(noise, mode="RGB").save(path)
+    out = quantize_to_indexed(path, size=64)
+    assert set(out.pixels.flatten().tolist()) <= _allowed_quantize_indices()
 
 
 def test_quantize_upscales_small_source(tmp_path):
     # A 10×10 source is smaller than the 112×112 target on both axes,
-    # so the upscale branch (image.py:55-56) must fire.
+    # so the upscale branch in quantize_to_indexed must fire.
     path = tmp_path / "small.png"
     PILImage.new("RGB", (10, 10), (80, 160, 40)).save(path)
     out = quantize_to_indexed(path, size=112)

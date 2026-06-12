@@ -37,11 +37,11 @@ def read_png(path: Path | str) -> IndexedImage:
 # Vanilla ride previews size:
 PREVIEW_SIZE = 112
 
-# Palette indices that are safe to quantize arbitrary imagery into.
-# Skip the transparent/special low entries (0-9) and the remap/cycling high entries
-# (237+, which include the remap1/remap2 regions and animated colours)
-_QUANTIZE_FIRST = 10
-_QUANTIZE_LAST = 236
+# Palette indices that are safe to quantize arbitrary imagery into: the
+# transparent/special low entries (0-9), the remap windows (202-213, 243-254),
+# and the animated water/flashing entries (227-239) are excluded.  Mirrors
+# region 0 of the native palette (x7_renderer/src/Palette.cpp).
+_QUANTIZE_RANGES = ((10, 201), (214, 226), (240, 242))
 
 
 def quantize_to_indexed(path: Path | str, *, size: int = PREVIEW_SIZE) -> IndexedImage:
@@ -66,7 +66,9 @@ def quantize_to_indexed(path: Path | str, *, size: int = PREVIEW_SIZE) -> Indexe
         )
 
     # Build a full 256-entry palette by tiling the candidate colours
-    candidate_indices = np.arange(_QUANTIZE_FIRST, _QUANTIZE_LAST + 1, dtype=np.uint8)
+    candidate_indices = np.concatenate(
+        [np.arange(first, last + 1, dtype=np.uint8) for first, last in _QUANTIZE_RANGES]
+    )
     candidate_rgb = PALETTE_RGB[candidate_indices]
     count = len(candidate_indices)
     tiled = np.arange(256) % count

@@ -111,6 +111,21 @@ def test_materials_to_dicts_with_texture():
     assert "color" not in result[0]
 
 
+def test_materials_to_dicts_texture_flag_without_texture_clears_flag():
+    # A HAS_TEXTURE flag with no actual texture must not be forwarded: the
+    # native renderer would look up the missing "texture" key and crash.
+    mat = Material()
+    mat.flags = MaterialFlag.HAS_TEXTURE | MaterialFlag.NO_AO
+    mat.texture = None
+    mesh = _simple_mesh()
+    mesh.materials = [mat]
+    result = _materials_to_dicts(mesh)
+    assert "texture" not in result[0]
+    assert "color" in result[0]
+    assert not result[0]["flags"] & MaterialFlag.HAS_TEXTURE
+    assert result[0]["flags"] & MaterialFlag.NO_AO  # other flags survive
+
+
 def test_materials_to_dicts_empty_materials():
     mesh = Mesh.empty()
     assert _materials_to_dicts(mesh) == []

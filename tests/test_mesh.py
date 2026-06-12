@@ -316,7 +316,9 @@ def test_missing_vt_with_nonzero_vt_index_warns_and_defaults_uv(tmp_path, caplog
     obj = "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1/2 2/3 3/1\n"
     with caplog.at_level(logging.WARNING, logger="openrct2_x7_renderer.mesh"):
         mesh = load_mesh(_write_obj(tmp_path, obj))
-    assert "references texture coordinate" in caplog.text
+    warnings = [r for r in caplog.records if "references texture coordinate" in r.message]
+    # Warned exactly once for the whole file, not once per face vertex.
+    assert len(warnings) == 1
     # UVs default to (0, 0) when vt data is absent.
     assert np.allclose(mesh.uvs, 0.0)
 
