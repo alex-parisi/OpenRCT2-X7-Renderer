@@ -17,6 +17,7 @@ __all__ = [
     "require_int",
     "require_number",
     "require_string",
+    "resolve_asset_path",
 ]
 
 import json
@@ -150,12 +151,32 @@ def as_array_or_wrap(value: Any) -> list[Any]:
     return [value]
 
 
+def resolve_asset_path(path: str, base_dir: Path | None) -> Path:
+    """Resolve a config-referenced asset path against the config's directory.
+
+    Absolute paths and paths with no *base_dir* are used as-is. A relative
+    path resolves against *base_dir* (typically the directory containing the
+    config file); when that file does not exist but the path does exist
+    relative to the CWD, the CWD path is used instead, so older configs
+    written with CWD-relative paths keep working. When neither exists the
+    *base_dir* candidate is returned so the error names the expected location.
+    """
+    p = Path(path)
+    if base_dir is None or p.is_absolute():
+        return p
+    candidate = base_dir / p
+    if not candidate.exists() and p.exists():
+        return p
+    return candidate
+
+
 def load_meshes(root: dict[str, Any], base_dir: Path | None = None) -> list[Mesh]:
     """Load every OBJ listed under the config's `meshes` array.
 
-    Relative mesh paths are resolved against *base_dir* (typically the
-    directory containing the config file).  When *base_dir* is ``None``
-    the paths are used as-is (resolved against CWD).
+    Relative mesh paths are resolved with :func:`resolve_asset_path`: against
+    *base_dir* (typically the directory containing the config file), falling
+    back to the CWD. When *base_dir* is ``None`` the paths are used as-is
+    (resolved against CWD).
     """
     mesh_paths = root.get("meshes")
     if not isinstance(mesh_paths, list):
@@ -164,27 +185,22 @@ def load_meshes(root: dict[str, Any], base_dir: Path | None = None) -> list[Mesh
     for path in mesh_paths:
         if not isinstance(path, str):
             raise LoadError("Mesh path is not a string")
-        resolved = Path(path) if base_dir is None or Path(path).is_absolute() else base_dir / path
-        meshes.append(load_mesh(resolved))
+        meshes.append(load_mesh(resolve_asset_path(path, base_dir)))
     return meshes
 
 
 def load_preview(root: dict[str, Any], base_dir: Path | None = None) -> IndexedImage | None:
     """Load the optional `preview` PNG referenced by the config, if any.
 
-    Relative preview paths are resolved against *base_dir*.
+    Relative preview paths are resolved with :func:`resolve_asset_path`
+    (against *base_dir*, falling back to the CWD).
     """
     preview_path = root.get("preview")
     if preview_path is None:
         return None
     if not isinstance(preview_path, str):
         raise LoadError('Property "preview" is not a string')
-    resolved = (
-        Path(preview_path)
-        if base_dir is None or Path(preview_path).is_absolute()
-        else base_dir / preview_path
-    )
     try:
-        return read_png(resolved)
+        return read_png(resolve_asset_path(preview_path, base_dir))
     except (OSError, ValueError) as e:
         raise LoadError(f"Unable to open image file {preview_path}: {e}") from e

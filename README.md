@@ -342,7 +342,8 @@ defaults to the current working directory.
 `meshes` (array of strings) lists OBJ files to load. `preview` (string) points
 to a preview PNG. Both accept absolute paths; relative paths are resolved
 against the config file's parent directory when a `base_dir` is passed to
-`load_meshes()` / `load_preview()` (the CLI does this automatically).
+`load_meshes()` / `load_preview()` (the CLI does this automatically), falling
+back to the current working directory when the file isn't found there.
 
 #### Test-mode remap colours
 

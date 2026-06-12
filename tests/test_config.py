@@ -1,5 +1,7 @@
 """Tests for the shared config parsing + validation helpers."""
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 from openrct2_x7_renderer.config import (
@@ -17,6 +19,7 @@ from openrct2_x7_renderer.config import (
     require_int,
     require_number,
     require_string,
+    resolve_asset_path,
 )
 
 
@@ -170,6 +173,45 @@ def test_load_meshes_returns_list(tmp_path):
     obj.write_text("v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n")
     meshes = load_meshes({"meshes": [str(obj)]})
     assert len(meshes) == 1
+
+
+def test_load_meshes_resolves_relative_to_base_dir(tmp_path):
+    obj = tmp_path / "m.obj"
+    obj.write_text("v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n")
+    meshes = load_meshes({"meshes": ["m.obj"]}, base_dir=tmp_path)
+    assert len(meshes) == 1
+
+
+def test_resolve_asset_path_no_base_dir():
+    assert resolve_asset_path("a/b.obj", None) == Path("a/b.obj")
+
+
+def test_resolve_asset_path_absolute_ignores_base_dir(tmp_path):
+    absolute = tmp_path / "m.obj"
+    assert resolve_asset_path(str(absolute), tmp_path / "elsewhere") == absolute
+
+
+def test_resolve_asset_path_prefers_base_dir(tmp_path, monkeypatch):
+    # The file exists both under base_dir and under the CWD: base_dir wins.
+    (tmp_path / "base").mkdir()
+    (tmp_path / "base" / "m.obj").write_text("")
+    (tmp_path / "cwd").mkdir()
+    (tmp_path / "cwd" / "m.obj").write_text("")
+    monkeypatch.chdir(tmp_path / "cwd")
+    assert resolve_asset_path("m.obj", tmp_path / "base") == tmp_path / "base" / "m.obj"
+
+
+def test_resolve_asset_path_falls_back_to_cwd(tmp_path, monkeypatch):
+    # Not under base_dir but present in the CWD (an older CWD-relative config).
+    (tmp_path / "cwd").mkdir()
+    (tmp_path / "cwd" / "m.obj").write_text("")
+    monkeypatch.chdir(tmp_path / "cwd")
+    assert resolve_asset_path("m.obj", tmp_path / "base") == Path("m.obj")
+
+
+def test_resolve_asset_path_missing_everywhere_names_base_dir(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert resolve_asset_path("m.obj", tmp_path / "base") == tmp_path / "base" / "m.obj"
 
 
 def test_load_meshes_rejects_non_array():
