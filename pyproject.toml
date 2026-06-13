@@ -1,6 +1,6 @@
 [project]
 name = "openrct2-x7-renderer"
-version = "0.3.5"
+version = "0.3.7"
 description = "Embree-backed isometric renderer that turns meshes into OpenRCT2 palette-indexed sprites."
 readme = "README.md"
 requires-python = ">=3.11"
