@@ -43,6 +43,7 @@ def make_context(
     units_per_tile: float,
     test: bool,
     root: dict[str, Any] | None = None,
+    dither: bool | str | None = None,
 ) -> Context:
     """Build a render Context whose camera scale is driven by the object's
     configured `units_per_tile`. Test mode scales ``upt`` down by ``TEST_ZOOM``
@@ -54,25 +55,27 @@ def make_context(
     test mode the overrides are ignored, so real renders keep their remap
     windows intact for OpenRCT2 to repaint.
 
-    Dithering is on by default; an optional top-level ``dither`` knob in the
-    config can turn it off (``false``) or pick a mode. Accepts a boolean
-    (matching the original RCTGen tools, where ``true`` means Floyd-Steinberg)
-    or a mode string: ``"none"``, ``"floyd_steinberg"``, or ``"bayer"`` (a
-    frame-stable ordered dither suited to animated objects)."""
+    Dithering is on by default. An explicit ``dither`` argument (used by the
+    Blender add-ons to pass a UI selection) takes precedence; otherwise an
+    optional top-level ``dither`` knob in the config is read. Both accept a
+    boolean (matching the original RCTGen tools, where ``true`` means
+    Floyd-Steinberg) or a mode string: ``"none"``, ``"floyd_steinberg"``, or
+    ``"bayer"`` (a frame-stable ordered dither suited to animated objects)."""
     upt = TEST_ZOOM * units_per_tile if test else units_per_tile
     overrides = load_remap_overrides(root) if (test and root is not None) else {}
-    dither: bool | str = True
-    if root is not None and "dither" in root:
-        value = root["dither"]
-        if isinstance(value, bool):
-            dither = value
-        elif isinstance(value, str) and value in DITHER_MODES:
-            dither = value
-        else:
-            raise LoadError(
-                'Property "dither" must be a boolean or one of: '
-                + ", ".join(sorted(DITHER_MODES))
-            )
+    if dither is None:
+        dither = True
+        if root is not None and "dither" in root:
+            value = root["dither"]
+            if isinstance(value, bool):
+                dither = value
+            elif isinstance(value, str) and value in DITHER_MODES:
+                dither = value
+            else:
+                raise LoadError(
+                    'Property "dither" must be a boolean or one of: '
+                    + ", ".join(sorted(DITHER_MODES))
+                )
     return Context(lights=lights, dither=dither, upt=upt, remap_overrides=overrides)
 
 

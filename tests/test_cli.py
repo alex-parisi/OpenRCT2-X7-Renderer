@@ -122,6 +122,15 @@ def test_make_context_dither_rejects_invalid_value():
         make_context(default_lights(), 16.0, test=False, root={"dither": "yes"})
 
 
+def test_make_context_explicit_dither_arg_overrides_config():
+    # The add-ons pass the UI selection explicitly; it wins over the config and
+    # is used verbatim without config validation.
+    ctx = make_context(
+        default_lights(), 16.0, test=False, root={"dither": False}, dither="bayer"
+    )
+    assert ctx.dither_mode == "bayer"
+
+
 # ---------- run_cli ----------
 
 
