@@ -32,6 +32,7 @@ LIGHT_SPECULAR: int
 DITHER_NONE: int
 DITHER_FLOYD_STEINBERG: int
 DITHER_BAYER: int
+DITHER_BLUE_NOISE: int
 
 
 class Context:
@@ -39,7 +40,7 @@ class Context:
 
     Typical lifecycle::
 
-        ctx = Context(lights=lights, dither_mode=DITHER_FLOYD_STEINBERG, upt=32.0)
+        ctx = Context(lights=lights, dither_mode=DITHER_FLOYD_STEINBERG, stability=0.0, upt=32.0)
         ctx.begin_render()
         ctx.add_mesh(...)           # repeat for each mesh
         ctx.finalize_render()
@@ -54,6 +55,7 @@ class Context:
         self,
         lights: list[Any],
         dither_mode: int,
+        stability: float,
         upt: float,
     ) -> None:
         """
@@ -63,8 +65,13 @@ class Context:
                     and ``direction`` (float32 array of shape ``(3,)``).
             dither_mode: Quantisation dithering, one of ``DITHER_NONE``,
                     ``DITHER_FLOYD_STEINBERG`` (highest fidelity, temporally
-                    unstable across animation frames), or ``DITHER_BAYER``
-                    (screen-anchored ordered dither, stable across frames).
+                    unstable across animation frames), ``DITHER_BAYER``
+                    (screen-anchored ordered dither, stable across frames), or
+                    ``DITHER_BLUE_NOISE`` (screen-anchored blue-noise tile;
+                    like Bayer but with less perceptible residual motion).
+            stability: Temporal-stability deadband in 8-bit sRGB units. Snaps the
+                    pre-dither colour onto a grid of this size so sub-step shading
+                    changes quantise identically between frames. ``0`` disables it.
             upt:    Units-per-tile scale factor used by the renderer kernel.
         """
         ...

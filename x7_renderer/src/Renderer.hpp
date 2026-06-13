@@ -65,11 +65,23 @@ namespace RCTGen {
         // output depends only on its own colour and its (frame-invariant) screen
         // position, so unchanged regions are byte-identical between frames.
         Bayer = 2,
+        // Like Bayer, but driven by a 64x64 blue-noise threshold tile instead of
+        // the 8x8 recursive matrix. Same frame-invariant screen anchoring, but
+        // the mask has no low-frequency structure, so wherever the shading does
+        // change between frames (rotation, animation) the residual dither motion
+        // is far less perceptible than Bayer's regular cross-hatch.
+        BlueNoise = 3,
     };
 
     struct Context {
         std::vector<Light> lights{};
         DitherMode dither{DitherMode::None};
+        // Temporal-stability deadband, in 8-bit sRGB units. Before dithering, the
+        // pre-quantisation colour is snapped onto a grid of this size so shading
+        // changes smaller than the deadband quantise identically across frames
+        // (suppressing sub-step "swimming"); the ordered dither masks the banding
+        // this would otherwise introduce. 0 disables it.
+        float stability{0.0f};
         bool finalized{};
         Matrix3 projection{};
         DeviceHandle rt_device;
@@ -85,7 +97,8 @@ namespace RCTGen {
         {{0, 0, -1, 0, 1, 0, 1, 0, 0}},
     }};
 
-    void ContextInit(Context& ctx, std::span<const Light> lights, DitherMode dither, Palette palette, float upt);
+    void ContextInit(
+        Context& ctx, std::span<const Light> lights, DitherMode dither, float stability, Palette palette, float upt);
 
     void context_destroy(Context& ctx);
 

@@ -16,6 +16,7 @@
 #include <utility>
 #include <vector>
 
+#include "BlueNoise.hpp"
 #include "Mesh.hpp"
 #include "Palette.hpp"
 #include "Renderer.hpp"
@@ -68,10 +69,12 @@ namespace RCTGen {
     };
 
     // NOLINTNEXTLINE(misc-use-internal-linkage)
-    void ContextInit(Context& ctx, std::span<const Light> lights, DitherMode dither, Palette palette, float upt) {
+    void ContextInit(
+        Context& ctx, std::span<const Light> lights, DitherMode dither, float stability, Palette palette, float upt) {
         ctx.rt_device = DeviceHandle::create();
         ctx.lights.assign(lights.begin(), lights.end());
         ctx.dither = dither;
+        ctx.stability = stability;
         // Dimetric (2:1 pixel aspect, ~30° elevation) projection matrix.
         // Each entry is derived from (32/upt) * combinations of sqrt(2), sqrt(3), sqrt(6),
         // matching OpenRCT2's fixed isometric camera geometry.
@@ -385,7 +388,7 @@ namespace RCTGen {
                 return bounds;
         }
 
-        Image ImageFromFramebuffer(Framebuffer& framebuffer, Palette& palette, DitherMode dither) {
+        Image ImageFromFramebuffer(Framebuffer& framebuffer, Palette& palette, DitherMode dither, float stability) {
             Image image;
             Rect const bounding_box = FramebufferGetBounds(framebuffer);
             image.width = static_cast<std::uint16_t>(1 + bounding_box.x_upper - bounding_box.x_lower);
@@ -415,19 +418,38 @@ namespace RCTGen {
                 for (int x = start; x != stop; x += step) {
                     Fragment& fragment = framebuffer.fragments[x + y * framebuffer.width];
                     if (fragment.region != kFragmentUnused) {
-                        Color const base = color_from_vector(fragment.color);
+                        Color base = color_from_vector(fragment.color);
+                        // Temporal-stability deadband: snap the pre-dither colour onto a
+                        // coarser grid so per-frame shading changes smaller than `stability`
+                        // collapse to an identical input and quantise the same way (killing
+                        // sub-step "swimming"); the ordered dither below masks the banding.
+                        if (stability > 1.0f) {
+                            const auto snap = [&](std::uint8_t c) -> std::uint8_t {
+                                return clamp_u8(std::round(static_cast<float>(c) / stability) * stability);
+                            };
+                            base = {snap(base.r), snap(base.g), snap(base.b)};
+                        }
                         // Snap to the 8-bit sRGB grid (kept for Floyd-Steinberg parity).
                         fragment.color = vector_from_color(base);
 
                         Vector3 target = fragment.color;
-                        if (dither == DitherMode::Bayer) {
+                        if (dither == DitherMode::Bayer || dither == DitherMode::BlueNoise) {
                             // A single per-pixel threshold shifts all channels together
                             // (avoids colour fringing); the index is the frame-invariant
                             // screen coordinate, so the pattern stays locked to the object.
-                            const int sx = (x + screen_origin_x) & (kBayerSize - 1);
-                            const int sy = (y + screen_origin_y) & (kBayerSize - 1);
-                            const float threshold =
-                                (static_cast<float>(kBayerMatrix[sy][sx]) + 0.5f) / kBayerLevels - 0.5f;
+                            // Bayer uses the 8x8 recursive matrix; BlueNoise the 64x64
+                            // void-and-cluster tile (less perceptible residual motion).
+                            float threshold = 0.0f;
+                            if (dither == DitherMode::Bayer) {
+                                const int sx = (x + screen_origin_x) & (kBayerSize - 1);
+                                const int sy = (y + screen_origin_y) & (kBayerSize - 1);
+                                threshold = (static_cast<float>(kBayerMatrix[sy][sx]) + 0.5f) / kBayerLevels - 0.5f;
+                            } else {
+                                const int sx = (x + screen_origin_x) & (kBlueNoiseSize - 1);
+                                const int sy = (y + screen_origin_y) & (kBlueNoiseSize - 1);
+                                threshold =
+                                    (static_cast<float>(kBlueNoiseMatrix[sy][sx]) + 0.5f) / kBlueNoiseLevels - 0.5f;
+                            }
                             const float shift = threshold * kBayerSpread;
                             Color const perturbed = {clamp_u8(static_cast<float>(base.r) + shift),
                                                      clamp_u8(static_cast<float>(base.g) + shift),
@@ -625,7 +647,7 @@ namespace RCTGen {
             ctx.thread_pool->run(static_cast<int>(framebuffer.height), render_row);
 
             // Convert to indexed color
-            return ImageFromFramebuffer(framebuffer, ctx.palette, ctx.dither);
+            return ImageFromFramebuffer(framebuffer, ctx.palette, ctx.dither, ctx.stability);
         }
     } // namespace
 

@@ -156,9 +156,18 @@ def test_context_dither_bool_and_mode_strings():
     assert Context(lights=default_lights(), dither=False).dither_mode == "none"
     assert Context(lights=default_lights(), dither="bayer").dither_mode == "bayer"
     assert (
+        Context(lights=default_lights(), dither="blue_noise").dither_mode == "blue_noise"
+    )
+    assert (
         Context(lights=default_lights(), dither="floyd_steinberg").dither_mode
         == "floyd_steinberg"
     )
+
+
+def test_context_stability_defaults_to_zero_and_is_configurable():
+    assert Context(lights=default_lights()).stability == 0.0
+    ctx = Context(lights=default_lights(), dither="blue_noise", stability=8.0)
+    assert ctx.stability == 8.0
 
 
 def test_context_rejects_unknown_dither_mode():

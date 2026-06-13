@@ -44,6 +44,7 @@ def make_context(
     test: bool,
     root: dict[str, Any] | None = None,
     dither: bool | str | None = None,
+    stability: float | None = None,
 ) -> Context:
     """Build a render Context whose camera scale is driven by the object's
     configured `units_per_tile`. Test mode scales ``upt`` down by ``TEST_ZOOM``
@@ -59,8 +60,15 @@ def make_context(
     Blender add-ons to pass a UI selection) takes precedence; otherwise an
     optional top-level ``dither`` knob in the config is read. Both accept a
     boolean (matching the original RCTGen tools, where ``true`` means
-    Floyd-Steinberg) or a mode string: ``"none"``, ``"floyd_steinberg"``, or
-    ``"bayer"`` (a frame-stable ordered dither suited to animated objects)."""
+    Floyd-Steinberg) or a mode string: ``"none"``, ``"floyd_steinberg"``,
+    ``"bayer"`` (a frame-stable ordered dither suited to animated objects), or
+    ``"blue_noise"`` (a frame-stable blue-noise dither with less visible residual
+    motion under rotation).
+
+    A ``dither_stability`` knob (a non-negative number, default ``0``) sets a
+    temporal-stability deadband in 8-bit colour units: shading changes smaller
+    than it quantise identically between frames, further suppressing "swimming".
+    An explicit ``stability`` argument takes precedence over the config knob."""
     upt = TEST_ZOOM * units_per_tile if test else units_per_tile
     overrides = load_remap_overrides(root) if (test and root is not None) else {}
     if dither is None:
@@ -76,7 +84,17 @@ def make_context(
                     'Property "dither" must be a boolean or one of: '
                     + ", ".join(sorted(DITHER_MODES))
                 )
-    return Context(lights=lights, dither=dither, upt=upt, remap_overrides=overrides)
+    if stability is None:
+        stability = 0.0
+        if root is not None and "dither_stability" in root:
+            value = root["dither_stability"]
+            if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
+                stability = float(value)
+            else:
+                raise LoadError('Property "dither_stability" must be a non-negative number')
+    return Context(
+        lights=lights, dither=dither, upt=upt, remap_overrides=overrides, stability=stability
+    )
 
 
 def run_cli(prog: str, argv: list[str] | None, render: RenderFn) -> int:

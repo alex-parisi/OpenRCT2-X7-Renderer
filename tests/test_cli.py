@@ -117,6 +117,11 @@ def test_make_context_dither_mode_from_config_string():
     assert ctx.dither_mode == "bayer"
 
 
+def test_make_context_blue_noise_mode_from_config_string():
+    ctx = make_context(default_lights(), 16.0, test=False, root={"dither": "blue_noise"})
+    assert ctx.dither_mode == "blue_noise"
+
+
 def test_make_context_dither_rejects_invalid_value():
     with pytest.raises(LoadError, match="dither"):
         make_context(default_lights(), 16.0, test=False, root={"dither": "yes"})
@@ -129,6 +134,33 @@ def test_make_context_explicit_dither_arg_overrides_config():
         default_lights(), 16.0, test=False, root={"dither": False}, dither="bayer"
     )
     assert ctx.dither_mode == "bayer"
+
+
+def test_make_context_stability_defaults_to_zero():
+    assert make_context(default_lights(), 16.0, test=False).stability == 0.0
+    assert make_context(default_lights(), 16.0, test=False, root={}).stability == 0.0
+
+
+def test_make_context_stability_from_config():
+    ctx = make_context(default_lights(), 16.0, test=False, root={"dither_stability": 8})
+    assert ctx.stability == 8.0
+
+
+def test_make_context_stability_rejects_negative_value():
+    with pytest.raises(LoadError, match="dither_stability"):
+        make_context(default_lights(), 16.0, test=False, root={"dither_stability": -1})
+
+
+def test_make_context_stability_rejects_non_numeric_value():
+    with pytest.raises(LoadError, match="dither_stability"):
+        make_context(default_lights(), 16.0, test=False, root={"dither_stability": True})
+
+
+def test_make_context_explicit_stability_arg_overrides_config():
+    ctx = make_context(
+        default_lights(), 16.0, test=False, root={"dither_stability": 8}, stability=4.0
+    )
+    assert ctx.stability == 4.0
 
 
 # ---------- run_cli ----------

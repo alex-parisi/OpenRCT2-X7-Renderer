@@ -27,20 +27,24 @@ VIEWS: tuple[NDArray[np.float64], ...] = (
 # highest fidelity but is temporally unstable (its error diffusion makes the
 # pattern "swim" across an animation's frames); ``bayer`` is a screen-anchored
 # ordered dither whose output is identical between frames wherever the colour
-# is unchanged, ideal for animated objects.
+# is unchanged, ideal for animated objects. ``blue_noise`` is the same
+# screen-anchored ordered dither but driven by a 64x64 void-and-cluster tile
+# instead of the 8x8 Bayer matrix, so the residual pattern motion wherever the
+# shading does change (rotation, animation) is far less perceptible.
 DITHER_MODES: dict[str, int] = {
     "none": x7.DITHER_NONE,
     "floyd_steinberg": x7.DITHER_FLOYD_STEINBERG,
     "bayer": x7.DITHER_BAYER,
+    "blue_noise": x7.DITHER_BLUE_NOISE,
 }
 
 
 def _resolve_dither(dither: bool | str) -> str:
     """Normalize a ``dither`` argument to a canonical mode name.
 
-    Accepts a mode string (``"none"`` / ``"floyd_steinberg"`` / ``"bayer"``) or,
-    for backwards compatibility, a bool where ``True`` selects Floyd-Steinberg
-    and ``False`` disables dithering.
+    Accepts a mode string (``"none"`` / ``"floyd_steinberg"`` / ``"bayer"`` /
+    ``"blue_noise"``) or, for backwards compatibility, a bool where ``True``
+    selects Floyd-Steinberg and ``False`` disables dithering.
     """
     if isinstance(dither, bool):
         return "floyd_steinberg" if dither else "none"
@@ -250,8 +254,13 @@ class Context:
     Attributes:
         lights: Light rig used for shading.
         dither_mode: Palette dithering mode (``"none"`` / ``"floyd_steinberg"``
-            / ``"bayer"``). Use ``"bayer"`` for animated objects so the dither
-            pattern stays stable across frames.
+            / ``"bayer"`` / ``"blue_noise"``). Use ``"bayer"`` or ``"blue_noise"``
+            for animated objects so the dither pattern stays stable across frames;
+            ``"blue_noise"`` further reduces the residual motion under rotation.
+        stability: Temporal-stability deadband in 8-bit sRGB units (0 disables).
+            Snaps the pre-dither colour onto a coarser grid so shading changes
+            smaller than the deadband quantise identically across frames,
+            suppressing residual "swimming"; the dither masks the banding.
         upt: Camera scale as units-per-tile; smaller values zoom in.
         remap_overrides: Preview-only ``{region: ramp}`` recolouring applied to
             ``render_view`` output (see :mod:`~openrct2_x7_renderer.remap`).
@@ -264,18 +273,23 @@ class Context:
         dither: bool | str = True,
         upt: float = TILE_SIZE,
         remap_overrides: dict[int, tuple[int, ...]] | None = None,
+        stability: float = 0.0,
     ) -> None:
         self.lights = lights
         self.dither_mode = _resolve_dither(dither)
+        self.stability = float(stability)
         self.upt = upt
         self.remap_overrides = remap_overrides or {}
         self._inner = x7.Context(
-            lights=lights, dither_mode=DITHER_MODES[self.dither_mode], upt=upt
+            lights=lights,
+            dither_mode=DITHER_MODES[self.dither_mode],
+            stability=self.stability,
+            upt=upt,
         )
 
     def __repr__(self) -> str:
         return (
-            f"Context(dither_mode={self.dither_mode!r}, "
+            f"Context(dither_mode={self.dither_mode!r}, stability={self.stability!r}, "
             f"upt={self.upt!r}, lights={self.lights!r})"
         )
 
