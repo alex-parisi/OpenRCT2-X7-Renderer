@@ -29,12 +29,17 @@ LIGHT_DIFFUSE: int
 LIGHT_SPECULAR: int
 
 
+DITHER_NONE: int
+DITHER_FLOYD_STEINBERG: int
+DITHER_BAYER: int
+
+
 class Context:
     """Native Embree render context.
 
     Typical lifecycle::
 
-        ctx = Context(lights=lights, dither=True, upt=32.0)
+        ctx = Context(lights=lights, dither_mode=DITHER_FLOYD_STEINBERG, upt=32.0)
         ctx.begin_render()
         ctx.add_mesh(...)           # repeat for each mesh
         ctx.finalize_render()
@@ -48,7 +53,7 @@ class Context:
     def __init__(
         self,
         lights: list[Any],
-        dither: bool,
+        dither_mode: int,
         upt: float,
     ) -> None:
         """
@@ -56,7 +61,10 @@ class Context:
             lights: List of light objects.  Each must expose the attributes
                     ``type`` (int), ``shadow`` (bool), ``intensity`` (float),
                     and ``direction`` (float32 array of shape ``(3,)``).
-            dither: Enable Floyd-Steinberg dithering when quantising to the RCT2 palette.
+            dither_mode: Quantisation dithering, one of ``DITHER_NONE``,
+                    ``DITHER_FLOYD_STEINBERG`` (highest fidelity, temporally
+                    unstable across animation frames), or ``DITHER_BAYER``
+                    (screen-anchored ordered dither, stable across frames).
             upt:    Units-per-tile scale factor used by the renderer kernel.
         """
         ...

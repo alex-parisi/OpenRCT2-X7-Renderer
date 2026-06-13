@@ -62,7 +62,7 @@ namespace {
 
     class RenderContext {
     public:
-        RenderContext(const py::list& lights_py, bool dither, float upt) {
+        RenderContext(const py::list& lights_py, int dither_mode, float upt) {
             lights_.reserve(py::len(lights_py));
             for (auto h : lights_py) {
                 auto const o = py::reinterpret_borrow<py::object>(h);
@@ -77,7 +77,9 @@ namespace {
             }
 
             palette_ = palette_rct2();
-            ContextInit(ctx_, std::span<const Light>(lights_), dither, palette_, upt);
+            if (dither_mode < static_cast<int>(DitherMode::None) || dither_mode > static_cast<int>(DitherMode::Bayer))
+                throw std::invalid_argument("dither_mode out of range");
+            ContextInit(ctx_, std::span<const Light>(lights_), static_cast<DitherMode>(dither_mode), palette_, upt);
         }
 
         ~RenderContext() {
@@ -304,9 +306,12 @@ PYBIND11_MODULE(_x7_renderer, m) {
     m.attr("LIGHT_HEMI") = static_cast<int>(LightType::Hemi);
     m.attr("LIGHT_DIFFUSE") = static_cast<int>(LightType::Diffuse);
     m.attr("LIGHT_SPECULAR") = static_cast<int>(LightType::Specular);
+    m.attr("DITHER_NONE") = static_cast<int>(DitherMode::None);
+    m.attr("DITHER_FLOYD_STEINBERG") = static_cast<int>(DitherMode::FloydSteinberg);
+    m.attr("DITHER_BAYER") = static_cast<int>(DitherMode::Bayer);
 
     py::class_<RenderContext>(m, "Context")
-        .def(py::init<py::list, bool, float>(), py::arg("lights"), py::arg("dither"), py::arg("upt"))
+        .def(py::init<py::list, int, float>(), py::arg("lights"), py::arg("dither_mode"), py::arg("upt"))
         .def("begin_render", &RenderContext::BeginRender)
         .def("add_mesh", &RenderContext::AddMesh, py::arg("vertices"), py::arg("normals"), py::arg("uvs"),
              py::arg("faces"), py::arg("face_materials"), py::arg("materials"), py::arg("matrix"),

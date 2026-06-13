@@ -55,9 +55,21 @@ namespace RCTGen {
         std::vector<Fragment> fragments{};
     };
 
+    enum class DitherMode : std::uint8_t {
+        None = 0,
+        // Error-diffusion: highest fidelity but temporally unstable. A tiny
+        // per-frame colour change anywhere cascades through the serpentine scan,
+        // so the dither pattern "swims" across an animation's frames.
+        FloydSteinberg = 1,
+        // Ordered dither anchored to the engine-screen coordinate. Each pixel's
+        // output depends only on its own colour and its (frame-invariant) screen
+        // position, so unchanged regions are byte-identical between frames.
+        Bayer = 2,
+    };
+
     struct Context {
         std::vector<Light> lights{};
-        bool dither{};
+        DitherMode dither{DitherMode::None};
         bool finalized{};
         Matrix3 projection{};
         DeviceHandle rt_device;
@@ -73,7 +85,7 @@ namespace RCTGen {
         {{0, 0, -1, 0, 1, 0, 1, 0, 0}},
     }};
 
-    void ContextInit(Context& ctx, std::span<const Light> lights, bool dither, Palette palette, float upt);
+    void ContextInit(Context& ctx, std::span<const Light> lights, DitherMode dither, Palette palette, float upt);
 
     void context_destroy(Context& ctx);
 

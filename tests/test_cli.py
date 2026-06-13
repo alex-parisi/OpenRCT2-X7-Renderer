@@ -10,6 +10,7 @@ from openrct2_x7_renderer.cli import (
     parse_cli_args,
     run_cli,
 )
+from openrct2_x7_renderer.config import LoadError
 from openrct2_x7_renderer.lights import default_lights
 
 # ---------- parse_cli_args ----------
@@ -93,6 +94,32 @@ def test_make_context_ignores_remap_overrides_outside_test_mode():
 def test_make_context_without_root_has_no_overrides():
     ctx = make_context(default_lights(), 16.0, test=True)
     assert ctx.remap_overrides == {}
+
+
+def test_make_context_dithers_by_default():
+    assert (
+        make_context(default_lights(), 16.0, test=False).dither_mode
+        == "floyd_steinberg"
+    )
+    assert (
+        make_context(default_lights(), 16.0, test=False, root={}).dither_mode
+        == "floyd_steinberg"
+    )
+
+
+def test_make_context_dither_can_be_disabled_by_config():
+    ctx = make_context(default_lights(), 16.0, test=False, root={"dither": False})
+    assert ctx.dither_mode == "none"
+
+
+def test_make_context_dither_mode_from_config_string():
+    ctx = make_context(default_lights(), 16.0, test=False, root={"dither": "bayer"})
+    assert ctx.dither_mode == "bayer"
+
+
+def test_make_context_dither_rejects_invalid_value():
+    with pytest.raises(LoadError, match="dither"):
+        make_context(default_lights(), 16.0, test=False, root={"dither": "yes"})
 
 
 # ---------- run_cli ----------

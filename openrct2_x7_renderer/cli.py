@@ -10,7 +10,7 @@ from typing import Any
 
 from .config import LoadError, parse_config
 from .lights import default_lights, load_lights
-from .ray_trace import Context
+from .ray_trace import DITHER_MODES, Context
 from .remap import load_remap_overrides
 from .types import Light
 
@@ -52,10 +52,28 @@ def make_context(
     ``test_remap_colors`` block is read and applied to ``render_view`` output so
     the preview shows repaint colours instead of the raw remap windows. Outside
     test mode the overrides are ignored, so real renders keep their remap
-    windows intact for OpenRCT2 to repaint."""
+    windows intact for OpenRCT2 to repaint.
+
+    Dithering is on by default; an optional top-level ``dither`` knob in the
+    config can turn it off (``false``) or pick a mode. Accepts a boolean
+    (matching the original RCTGen tools, where ``true`` means Floyd-Steinberg)
+    or a mode string: ``"none"``, ``"floyd_steinberg"``, or ``"bayer"`` (a
+    frame-stable ordered dither suited to animated objects)."""
     upt = TEST_ZOOM * units_per_tile if test else units_per_tile
     overrides = load_remap_overrides(root) if (test and root is not None) else {}
-    return Context(lights=lights, dither=True, upt=upt, remap_overrides=overrides)
+    dither: bool | str = True
+    if root is not None and "dither" in root:
+        value = root["dither"]
+        if isinstance(value, bool):
+            dither = value
+        elif isinstance(value, str) and value in DITHER_MODES:
+            dither = value
+        else:
+            raise LoadError(
+                'Property "dither" must be a boolean or one of: '
+                + ", ".join(sorted(DITHER_MODES))
+            )
+    return Context(lights=lights, dither=dither, upt=upt, remap_overrides=overrides)
 
 
 def run_cli(prog: str, argv: list[str] | None, render: RenderFn) -> int:

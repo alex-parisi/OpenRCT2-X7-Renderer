@@ -3,6 +3,7 @@
 import math
 
 import numpy as np
+import pytest
 from openrct2_x7_renderer.constants import MaterialFlag
 from openrct2_x7_renderer.geometry import rotate_x, rotate_y, rotate_z
 from openrct2_x7_renderer.lights import default_lights
@@ -138,7 +139,7 @@ def test_context_direct_init():
     lights = default_lights()
     ctx = Context(lights=lights, dither=True, upt=3.3)
     assert isinstance(ctx, Context)
-    assert ctx.dither is True
+    assert ctx.dither_mode == "floyd_steinberg"
     assert ctx.upt == 3.3
     assert ctx.lights is lights
 
@@ -146,15 +147,30 @@ def test_context_direct_init():
 def test_context_constructor_returns_context():
     ctx = _empty_context()
     assert isinstance(ctx, Context)
-    assert ctx.dither is False
+    assert ctx.dither_mode == "none"
     assert ctx.upt == 32.0
 
 
+def test_context_dither_bool_and_mode_strings():
+    # Bool keeps its historical meaning; strings select an explicit mode.
+    assert Context(lights=default_lights(), dither=False).dither_mode == "none"
+    assert Context(lights=default_lights(), dither="bayer").dither_mode == "bayer"
+    assert (
+        Context(lights=default_lights(), dither="floyd_steinberg").dither_mode
+        == "floyd_steinberg"
+    )
+
+
+def test_context_rejects_unknown_dither_mode():
+    with pytest.raises(ValueError, match="unknown dither mode"):
+        Context(lights=default_lights(), dither="sierra")
+
+
 def test_context_repr_contains_key_attributes():
-    ctx = Context(lights=default_lights(), dither=True, upt=5.0)
+    ctx = Context(lights=default_lights(), dither="bayer", upt=5.0)
     r = repr(ctx)
     assert "Context(" in r
-    assert "dither=True" in r
+    assert "dither_mode='bayer'" in r
     assert "upt=5.0" in r
 
 

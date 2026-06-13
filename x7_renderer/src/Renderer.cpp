@@ -38,6 +38,26 @@ namespace RCTGen {
     // in palette regions with coarse spacing (e.g. the remap and dark shadow regions).
     constexpr float kDitherErrorScale = 0.3f;
 
+    // Screen-anchored ordered (Bayer) dithering. Unlike error diffusion the bias is
+    // a pure function of the pixel's screen position, so it is identical across
+    // animation frames wherever the colour is unchanged.
+    constexpr int kBayerSize = 8;
+    constexpr float kBayerLevels = static_cast<float>(kBayerSize * kBayerSize);
+    // Amplitude of the dither perturbation, in 8-bit sRGB units. Roughly the spacing
+    // between adjacent palette ramp entries; raise for more texture, lower for less.
+    constexpr float kBayerSpread = 16.0f;
+    // Standard recursive 8x8 Bayer threshold matrix, values in [0, 63].
+    constexpr std::array<std::array<int, kBayerSize>, kBayerSize> kBayerMatrix = {{
+        {{0, 32, 8, 40, 2, 34, 10, 42}},
+        {{48, 16, 56, 24, 50, 18, 58, 26}},
+        {{12, 44, 4, 36, 14, 46, 6, 38}},
+        {{60, 28, 52, 20, 62, 30, 54, 22}},
+        {{3, 35, 11, 43, 1, 33, 9, 41}},
+        {{51, 19, 59, 27, 49, 17, 57, 25}},
+        {{15, 47, 7, 39, 13, 45, 5, 37}},
+        {{63, 31, 55, 23, 61, 29, 53, 21}},
+    }};
+
     // Blank fragments used for bulk initialization
     constexpr Fragment kBlankFragment{
         {0.0f, 0.0f, 0.0f}, 0.0f, 0.0f, MaterialFlag::None, kFragmentUnused,
@@ -48,7 +68,7 @@ namespace RCTGen {
     };
 
     // NOLINTNEXTLINE(misc-use-internal-linkage)
-    void ContextInit(Context& ctx, std::span<const Light> lights, bool dither, Palette palette, float upt) {
+    void ContextInit(Context& ctx, std::span<const Light> lights, DitherMode dither, Palette palette, float upt) {
         ctx.rt_device = DeviceHandle::create();
         ctx.lights.assign(lights.begin(), lights.end());
         ctx.dither = dither;
@@ -365,7 +385,7 @@ namespace RCTGen {
                 return bounds;
         }
 
-        Image ImageFromFramebuffer(Framebuffer& framebuffer, Palette& palette, bool dither) {
+        Image ImageFromFramebuffer(Framebuffer& framebuffer, Palette& palette, DitherMode dither) {
             Image image;
             Rect const bounding_box = FramebufferGetBounds(framebuffer);
             image.width = static_cast<std::uint16_t>(1 + bounding_box.x_upper - bounding_box.x_lower);
@@ -377,6 +397,16 @@ namespace RCTGen {
                 static_cast<std::int16_t>(bounding_box.y_lower + static_cast<int>(std::floor(framebuffer.offset.y)));
             image.pixels.assign(static_cast<std::size_t>(image.width) * image.height, 0);
 
+            // Engine-screen coordinate of framebuffer pixel (x, y): the bounding box
+            // and offset both shift between animation frames, but their combination
+            // (x + floor(offset)) is anchored to the world origin, giving the ordered
+            // dither a frame-invariant phase.
+            const int screen_origin_x = static_cast<int>(std::floor(framebuffer.offset.x));
+            const int screen_origin_y = static_cast<int>(std::floor(framebuffer.offset.y));
+            const auto clamp_u8 = [](float v) -> std::uint8_t {
+                return static_cast<std::uint8_t>(std::lround(std::clamp(v, 0.0f, 255.0f)));
+            };
+
             for (int y = bounding_box.y_lower; y <= bounding_box.y_upper; y++) {
                 int const start = (y & 1) ? (bounding_box.x_upper) : bounding_box.x_lower;
                 int const stop = (y & 1) ? (bounding_box.x_lower - 1) : bounding_box.x_upper + 1;
@@ -385,12 +415,30 @@ namespace RCTGen {
                 for (int x = start; x != stop; x += step) {
                     Fragment& fragment = framebuffer.fragments[x + y * framebuffer.width];
                     if (fragment.region != kFragmentUnused) {
-                        fragment.color = vector_from_color(color_from_vector(fragment.color));
-                        PaletteResult const pr =
-                            PaletteGetNearest(palette, fragment.region & kRegionMask, fragment.color);
+                        Color const base = color_from_vector(fragment.color);
+                        // Snap to the 8-bit sRGB grid (kept for Floyd-Steinberg parity).
+                        fragment.color = vector_from_color(base);
+
+                        Vector3 target = fragment.color;
+                        if (dither == DitherMode::Bayer) {
+                            // A single per-pixel threshold shifts all channels together
+                            // (avoids colour fringing); the index is the frame-invariant
+                            // screen coordinate, so the pattern stays locked to the object.
+                            const int sx = (x + screen_origin_x) & (kBayerSize - 1);
+                            const int sy = (y + screen_origin_y) & (kBayerSize - 1);
+                            const float threshold =
+                                (static_cast<float>(kBayerMatrix[sy][sx]) + 0.5f) / kBayerLevels - 0.5f;
+                            const float shift = threshold * kBayerSpread;
+                            Color const perturbed = {clamp_u8(static_cast<float>(base.r) + shift),
+                                                     clamp_u8(static_cast<float>(base.g) + shift),
+                                                     clamp_u8(static_cast<float>(base.b) + shift)};
+                            target = vector_from_color(perturbed);
+                        }
+
+                        PaletteResult const pr = PaletteGetNearest(palette, fragment.region & kRegionMask, target);
                         image.pixels[static_cast<std::size_t>(x - bounding_box.x_lower)
                                      + static_cast<std::size_t>(y - bounding_box.y_lower) * image.width] = pr.index;
-                        if (dither) {
+                        if (dither == DitherMode::FloydSteinberg) {
                             // Distribute error onto neighbouring points (Floyd-Steinberg, serpentine)
                             const std::array<std::array<int, 2>, 4> points = {
                                 {{x + step, y}, {x - step, y + 1}, {x, y + 1}, {x + step, y + 1}}};

@@ -23,6 +23,33 @@ VIEWS: tuple[NDArray[np.float64], ...] = (
     np.array([[0, 0, -1], [0, 1, 0], [1, 0, 0]], dtype=np.float64),   # SE
 )
 
+# Palette dithering modes accepted by Context. ``floyd_steinberg`` gives the
+# highest fidelity but is temporally unstable (its error diffusion makes the
+# pattern "swim" across an animation's frames); ``bayer`` is a screen-anchored
+# ordered dither whose output is identical between frames wherever the colour
+# is unchanged, ideal for animated objects.
+DITHER_MODES: dict[str, int] = {
+    "none": x7.DITHER_NONE,
+    "floyd_steinberg": x7.DITHER_FLOYD_STEINBERG,
+    "bayer": x7.DITHER_BAYER,
+}
+
+
+def _resolve_dither(dither: bool | str) -> str:
+    """Normalize a ``dither`` argument to a canonical mode name.
+
+    Accepts a mode string (``"none"`` / ``"floyd_steinberg"`` / ``"bayer"``) or,
+    for backwards compatibility, a bool where ``True`` selects Floyd-Steinberg
+    and ``False`` disables dithering.
+    """
+    if isinstance(dither, bool):
+        return "floyd_steinberg" if dither else "none"
+    if dither not in DITHER_MODES:
+        raise ValueError(
+            f"unknown dither mode {dither!r}; expected one of {sorted(DITHER_MODES)}"
+        )
+    return dither
+
 
 def _materials_to_dicts(mesh: Mesh) -> list[dict[str, Any]]:
     """Serialize a Mesh's materials into the dict format expected by the native renderer."""
@@ -222,8 +249,9 @@ class Context:
 
     Attributes:
         lights: Light rig used for shading.
-        dither: Whether Floyd-Steinberg dithering is applied when quantizing
-            to the palette.
+        dither_mode: Palette dithering mode (``"none"`` / ``"floyd_steinberg"``
+            / ``"bayer"``). Use ``"bayer"`` for animated objects so the dither
+            pattern stays stable across frames.
         upt: Camera scale as units-per-tile; smaller values zoom in.
         remap_overrides: Preview-only ``{region: ramp}`` recolouring applied to
             ``render_view`` output (see :mod:`~openrct2_x7_renderer.remap`).
@@ -233,18 +261,23 @@ class Context:
     def __init__(
         self,
         lights: list[Light],
-        dither: bool = True,
+        dither: bool | str = True,
         upt: float = TILE_SIZE,
         remap_overrides: dict[int, tuple[int, ...]] | None = None,
     ) -> None:
         self.lights = lights
-        self.dither = dither
+        self.dither_mode = _resolve_dither(dither)
         self.upt = upt
         self.remap_overrides = remap_overrides or {}
-        self._inner = x7.Context(lights=lights, dither=dither, upt=upt)
+        self._inner = x7.Context(
+            lights=lights, dither_mode=DITHER_MODES[self.dither_mode], upt=upt
+        )
 
     def __repr__(self) -> str:
-        return f"Context(dither={self.dither!r}, upt={self.upt!r}, lights={self.lights!r})"
+        return (
+            f"Context(dither_mode={self.dither_mode!r}, "
+            f"upt={self.upt!r}, lights={self.lights!r})"
+        )
 
     def begin_render(self) -> SceneBuilder:
         """Begin a new render pass; returns a :class:`SceneBuilder`."""

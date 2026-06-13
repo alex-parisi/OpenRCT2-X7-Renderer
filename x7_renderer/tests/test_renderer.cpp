@@ -64,7 +64,7 @@ protected:
 
     void SetUp() override {
         auto lights = test_lights();
-        ContextInit(ctx, lights, false, palette_rct2(), 32.0f);
+        ContextInit(ctx, lights, DitherMode::None, palette_rct2(), 32.0f);
     }
     void TearDown() override {
         context_destroy(ctx);
@@ -153,7 +153,7 @@ TEST_F(RendererTest, RenderWithGhostFlag) {
 TEST_F(RendererTest, RenderWithDithering) {
     context_destroy(ctx);
     auto lights = test_lights();
-    ContextInit(ctx, lights, true, palette_rct2(), 32.0f);
+    ContextInit(ctx, lights, DitherMode::FloydSteinberg, palette_rct2(), 32.0f);
 
     auto data = TestMeshData::make_triangle();
     context_begin_render(ctx);
@@ -162,6 +162,57 @@ TEST_F(RendererTest, RenderWithDithering) {
     Image img = context_render_view(ctx, views[0]);
     EXPECT_GT(img.width, 0);
     context_end_render(ctx);
+}
+
+TEST_F(RendererTest, RenderWithBayerDithering) {
+    context_destroy(ctx);
+    auto lights = test_lights();
+    ContextInit(ctx, lights, DitherMode::Bayer, palette_rct2(), 32.0f);
+
+    auto data = TestMeshData::make_triangle();
+    context_begin_render(ctx);
+    context_add_model(ctx, data.mesh, transform(matrix_identity(), vector3(0, 0, 0)));
+    context_finalize_render(ctx);
+    Image const img = context_render_view(ctx, views[0]);
+    EXPECT_GT(img.width, 0);
+    context_end_render(ctx);
+
+    // Ordered dithering is a pure function of colour + screen position, so an
+    // identical scene must produce a byte-identical sprite (temporal stability).
+    context_begin_render(ctx);
+    context_add_model(ctx, data.mesh, transform(matrix_identity(), vector3(0, 0, 0)));
+    context_finalize_render(ctx);
+    Image const again = context_render_view(ctx, views[0]);
+    context_end_render(ctx);
+    EXPECT_EQ(img.pixels, again.pixels);
+}
+
+TEST_F(RendererTest, BayerDitherDiffersFromNone) {
+    // Use a grey surface and zoom in (small upt) so the sprite covers many pixels.
+    // The grey ramp is dense enough that the ordered-dither bias straddles palette
+    // cells; saturated colours sit in sparse palette regions and may not dither.
+    auto data = TestMeshData::make_triangle();
+    data.materials[0].color = vector3(0.5f, 0.5f, 0.5f);
+    auto lights = test_lights();
+
+    context_destroy(ctx);
+    ContextInit(ctx, lights, DitherMode::None, palette_rct2(), 8.0f);
+    context_begin_render(ctx);
+    context_add_model(ctx, data.mesh, transform(matrix_identity(), vector3(0, 0, 0)));
+    context_finalize_render(ctx);
+    Image const flat = context_render_view(ctx, views[0]);
+    context_end_render(ctx);
+
+    context_destroy(ctx);
+    ContextInit(ctx, lights, DitherMode::Bayer, palette_rct2(), 8.0f);
+    context_begin_render(ctx);
+    context_add_model(ctx, data.mesh, transform(matrix_identity(), vector3(0, 0, 0)));
+    context_finalize_render(ctx);
+    Image const dithered = context_render_view(ctx, views[0]);
+    context_end_render(ctx);
+
+    ASSERT_EQ(flat.pixels.size(), dithered.pixels.size());
+    EXPECT_NE(flat.pixels, dithered.pixels);
 }
 
 TEST_F(RendererTest, RenderWithRotation) {
@@ -289,7 +340,7 @@ TEST_F(RendererTest, RenderWithShadowLight) {
     std::vector<Light> lights = {
         {LightType::Diffuse, 1, vector3_normalize(vector3(1, 1, 1)), 1.0f},
     };
-    ContextInit(ctx, lights, false, palette_rct2(), 32.0f);
+    ContextInit(ctx, lights, DitherMode::None, palette_rct2(), 32.0f);
 
     auto data = TestMeshData::make_triangle();
     data.materials[0].color = vector3(0.5f, 0.5f, 0.5f);
@@ -353,7 +404,7 @@ TEST_F(RendererTest, ContextRenderWithEnvThreadCount) {
     context_destroy(ctx);
     setenv("OPENRCT2_X7_NUM_THREADS", "2", 1);
     auto lights = test_lights();
-    ContextInit(ctx, lights, false, palette_rct2(), 32.0f);
+    ContextInit(ctx, lights, DitherMode::None, palette_rct2(), 32.0f);
     unsetenv("OPENRCT2_X7_NUM_THREADS");
 
     auto data = TestMeshData::make_triangle();
@@ -369,7 +420,7 @@ TEST_F(RendererTest, ContextRenderWithInvalidEnvThreadCount) {
     context_destroy(ctx);
     setenv("OPENRCT2_X7_NUM_THREADS", "0", 1);
     auto lights = test_lights();
-    ContextInit(ctx, lights, false, palette_rct2(), 32.0f);
+    ContextInit(ctx, lights, DitherMode::None, palette_rct2(), 32.0f);
     unsetenv("OPENRCT2_X7_NUM_THREADS");
 
     context_begin_render(ctx);
@@ -384,7 +435,7 @@ TEST_F(RendererTest, RenderWithShadowCastingGeometry) {
     std::vector<Light> lights = {
         {LightType::Diffuse, 1, vector3_normalize(vector3(0, 0, 1)), 1.0f},
     };
-    ContextInit(ctx, lights, false, palette_rct2(), 32.0f);
+    ContextInit(ctx, lights, DitherMode::None, palette_rct2(), 32.0f);
 
     // Two quads: one in front (blocker) and one behind (receiver).
     // Shadow ray from receiver toward light (+z) should be occluded by blocker.
@@ -437,7 +488,7 @@ TEST_F(RendererTest, OversizedSceneThrows) {
     context_destroy(ctx);
     auto lights = test_lights();
     // Tiny UPT makes projection scale huge, so even small geometry exceeds 16384px
-    ContextInit(ctx, lights, false, palette_rct2(), 0.001f);
+    ContextInit(ctx, lights, DitherMode::None, palette_rct2(), 0.001f);
 
     auto data = TestMeshData::make_triangle();
     context_begin_render(ctx);
@@ -450,7 +501,7 @@ TEST_F(RendererTest, OversizedSceneThrows) {
 TEST_F(RendererTest, DitherNoBleedAdjacentPixels) {
     context_destroy(ctx);
     auto lights = test_lights();
-    ContextInit(ctx, lights, true, palette_rct2(), 32.0f);
+    ContextInit(ctx, lights, DitherMode::FloydSteinberg, palette_rct2(), 32.0f);
 
     // Two adjacent triangles both with NO_BLEED so dither error can propagate between them
     TestMeshData d1, d2;
