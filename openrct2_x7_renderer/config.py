@@ -170,13 +170,18 @@ def resolve_asset_path(path: str, base_dir: Path | None) -> Path:
     return candidate
 
 
-def load_meshes(root: dict[str, Any], base_dir: Path | None = None) -> list[Mesh]:
+def load_meshes(
+    root: dict[str, Any],
+    base_dir: Path | None = None,
+    transform: NDArray[np.float64] | None = None,
+) -> list[Mesh]:
     """Load every OBJ listed under the config's `meshes` array.
 
     Relative mesh paths are resolved with :func:`resolve_asset_path`: against
     *base_dir* (typically the directory containing the config file), falling
     back to the CWD. When *base_dir* is ``None`` the paths are used as-is
-    (resolved against CWD).
+    (resolved against CWD). *transform*, if given, is applied to every loaded
+    mesh (e.g. maketrack's along-track load rotation).
     """
     mesh_paths = root.get("meshes")
     if not isinstance(mesh_paths, list):
@@ -185,7 +190,7 @@ def load_meshes(root: dict[str, Any], base_dir: Path | None = None) -> list[Mesh
     for path in mesh_paths:
         if not isinstance(path, str):
             raise LoadError("Mesh path is not a string")
-        meshes.append(load_mesh(resolve_asset_path(path, base_dir)))
+        meshes.append(load_mesh(resolve_asset_path(path, base_dir), transform=transform))
     return meshes
 
 
