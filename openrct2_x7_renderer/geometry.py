@@ -6,6 +6,7 @@ slice a mesh into the subset of faces belonging to a tile.
 
 __all__ = [
     "assign_faces_to_tiles",
+    "clip_mesh_to_tile",
     "combine_model_world",
     "face_centroids",
     "rotate_x",
@@ -144,6 +145,97 @@ def subset_mesh(mesh: Mesh, face_mask: NDArray[np.bool_]) -> Mesh:
         uvs=mesh.uvs[used],
         faces=new_faces,
         face_materials=mesh.face_materials[face_mask].astype(np.uint32),
+        materials=mesh.materials,
+    )
+
+
+def _clip_polygon_axis(
+    poly: list[NDArray[np.float64]], axis: int, bound: float, *, keep_less: bool
+) -> list[NDArray[np.float64]]:
+    """Sutherland-Hodgman clip of a convex polygon against one axis-aligned half-plane.
+
+    Each polygon vertex is a full attribute row (position, normal, uv
+    concatenated) so the cut edge's normal/uv are linearly interpolated along
+    with position. Keeps ``coord <= bound`` when `keep_less`, else ``coord >=
+    bound``.
+    """
+    if not poly:
+        return poly
+    out: list[NDArray[np.float64]] = []
+    n = len(poly)
+    for i in range(n):
+        cur = poly[i]
+        prev = poly[i - 1]
+        cur_val, prev_val = cur[axis], prev[axis]
+        cur_in = cur_val <= bound if keep_less else cur_val >= bound
+        prev_in = prev_val <= bound if keep_less else prev_val >= bound
+        if cur_in != prev_in:
+            t = (bound - prev_val) / (cur_val - prev_val)
+            out.append(prev + (cur - prev) * t)
+        if cur_in:
+            out.append(cur)
+    return out
+
+
+def clip_mesh_to_tile(
+    mesh: Mesh, center_xz: tuple[float, float], half_size: float
+) -> Mesh:
+    """The portion of `mesh` inside one axis-aligned tile footprint (OBJ X/Z
+    square of side ``2 * half_size`` centred on `center_xz`), clipping
+    triangles that straddle the boundary instead of discarding or keeping them
+    whole.
+
+    Large-scenery tiles need one sprite per tile showing only the geometry
+    over that tile's footprint. Assigning each *whole* triangle to its nearest
+    tile (see :func:`assign_faces_to_tiles`) keeps a straddling triangle's far
+    vertices verbatim: for continuous geometry spanning several tiles (a
+    cylindrical tank, a conical roof's apex fan), that leaves slivers reaching
+    clear across the model, wildly inflating the tile's render bounds. This
+    clips each triangle against the tile's square instead, fan-triangulating
+    the resulting convex polygon (at most a heptagon, from 3 vertices clipped
+    by 4 half-planes) and linearly interpolating normal/uv at new cut edges.
+    """
+    cx, cz = center_xz
+    x_lo, x_hi = cx - half_size, cx + half_size
+    z_lo, z_hi = cz - half_size, cz + half_size
+
+    verts = mesh.vertices.astype(np.float64)
+    norms = mesh.normals.astype(np.float64)
+    uvs = mesh.uvs.astype(np.float64)
+
+    out_rows: list[NDArray[np.float64]] = []
+    out_faces: list[tuple[int, int, int]] = []
+    out_face_materials: list[int] = []
+
+    for f in range(mesh.faces.shape[0]):
+        poly = [np.concatenate([verts[i], norms[i], uvs[i]]) for i in mesh.faces[f]]
+        poly = _clip_polygon_axis(poly, 0, x_lo, keep_less=False)
+        poly = _clip_polygon_axis(poly, 0, x_hi, keep_less=True)
+        poly = _clip_polygon_axis(poly, 2, z_lo, keep_less=False)
+        poly = _clip_polygon_axis(poly, 2, z_hi, keep_less=True)
+        if len(poly) < 3:
+            continue
+        base = len(out_rows)
+        out_rows.extend(poly)
+        material = int(mesh.face_materials[f])
+        for i in range(1, len(poly) - 1):
+            out_faces.append((base, base + i, base + i + 1))
+            out_face_materials.append(material)
+
+    if not out_faces:
+        return Mesh.empty(mesh.materials)
+
+    rows = np.array(out_rows, dtype=np.float64)
+    n = rows[:, 3:6]
+    n_len = np.linalg.norm(n, axis=1, keepdims=True)
+    n_len[n_len == 0] = 1.0
+
+    return Mesh(
+        vertices=rows[:, 0:3].astype(np.float32),
+        normals=(n / n_len).astype(np.float32),
+        uvs=rows[:, 6:8].astype(np.float32),
+        faces=np.array(out_faces, dtype=np.uint32),
+        face_materials=np.array(out_face_materials, dtype=np.uint32),
         materials=mesh.materials,
     )
 

@@ -4,6 +4,7 @@ import numpy as np
 from openrct2_x7_renderer.constants import MeshFlag
 from openrct2_x7_renderer.geometry import (
     assign_faces_to_tiles,
+    clip_mesh_to_tile,
     combine_model_world,
     face_centroids,
     split_mesh_by_ghost,
@@ -212,3 +213,79 @@ def test_split_mesh_by_ghost_material_less_mesh_is_passthrough():
     assert len(out) == 1
     assert out[0][0] is mesh
     assert out[0][1] == 3
+
+
+def _mesh_area(mesh):
+    """Sum of triangle areas (for a conservation check across a tile split)."""
+    if mesh.faces.shape[0] == 0:
+        return 0.0
+    tri = mesh.vertices.astype(np.float64)[mesh.faces]
+    cross = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+    return float(np.linalg.norm(cross, axis=1).sum() / 2.0)
+
+
+def test_clip_mesh_to_tile_fully_inside_passthrough():
+    mesh = _tri_mesh([[0, 0, 0], [1, 0, 0], [0, 0, 1]])
+    out = clip_mesh_to_tile(mesh, (0.0, 0.0), 5.0)
+    assert out.faces.shape == (1, 3)
+    assert np.allclose(sorted(out.vertices.tolist()), sorted(mesh.vertices.tolist()))
+
+
+def test_clip_mesh_to_tile_fully_outside_is_empty():
+    mesh = _tri_mesh([[100, 0, 100], [101, 0, 100], [100, 0, 101]])
+    out = clip_mesh_to_tile(mesh, (0.0, 0.0), 1.0)
+    assert out.faces.shape == (0, 3)
+    assert out.vertices.shape == (0, 3)
+    assert out.materials == mesh.materials
+
+
+def test_clip_mesh_to_tile_empty_mesh_input():
+    out = clip_mesh_to_tile(Mesh.empty(), (0.0, 0.0), 1.0)
+    assert out.faces.shape == (0, 3)
+
+
+def test_clip_mesh_to_tile_clips_straddling_triangle_bounds():
+    # Straddles both the X and Z tile boundaries.
+    mesh = _tri_mesh([[-2, 5, 0], [2, 5, 0], [0, 5, 2]])
+    out = clip_mesh_to_tile(mesh, (0.0, 0.0), 1.0)
+    assert out.faces.shape[0] >= 1
+    assert np.all(out.vertices[:, 0] >= -1.0 - 1e-5)
+    assert np.all(out.vertices[:, 0] <= 1.0 + 1e-5)
+    assert np.all(out.vertices[:, 2] >= -1.0 - 1e-5)
+    assert np.all(out.vertices[:, 2] <= 1.0 + 1e-5)
+    # Height (Y) is untouched by the horizontal clip.
+    assert np.allclose(out.vertices[:, 1], 5.0)
+    # All resulting triangles keep the source face's material.
+    assert np.all(out.face_materials == 0)
+
+
+def test_clip_mesh_to_tile_interpolates_uv_at_cut():
+    # A in-bounds, B in-bounds, C out past x_hi=1: clipping the C-A and B-C
+    # edges against the x<=1 plane must linearly interpolate UV too.
+    mesh = Mesh(
+        vertices=np.array([[0, 0, 0], [0, 0, 1], [3, 0, 0.5]], dtype=np.float32),
+        normals=np.tile([0.0, 1.0, 0.0], (3, 1)).astype(np.float32),
+        uvs=np.array([[10.0, 0.0], [20.0, 0.0], [30.0, 0.0]], dtype=np.float32),
+        faces=np.array([[0, 1, 2]], dtype=np.uint32),
+        face_materials=np.array([0], dtype=np.uint32),
+        materials=[Material()],
+    )
+    out = clip_mesh_to_tile(mesh, (0.0, 0.0), 1.0)
+    cut = out.vertices[:, 0] >= 1.0 - 1e-5
+    assert cut.sum() == 2
+    # t = (1-3)/(0-3) along C->A, and t = (1-0)/(3-0) along B->C.
+    expected_ca = 30.0 + (10.0 - 30.0) * ((1 - 3) / (0 - 3))
+    expected_bc = 20.0 + (30.0 - 20.0) * ((1 - 0) / (3 - 0))
+    got = sorted(out.uvs[cut, 0].tolist())
+    assert np.allclose(got, sorted([expected_ca, expected_bc]), atol=1e-4)
+
+
+def test_clip_mesh_to_tile_conserves_area_across_tiles():
+    # A triangle spanning all 4 quadrants of a 2x2 tile grid (fully contained
+    # in the grid's [-1, 1] x [-1, 1] union): the clipped pieces' areas must
+    # sum back to the original (no geometry lost or duplicated).
+    mesh = _tri_mesh([[-0.9, 0, -0.9], [0.9, 0, -0.7], [-0.7, 0, 0.9]])
+    total = _mesh_area(mesh)
+    centers = [(-0.5, -0.5), (0.5, -0.5), (-0.5, 0.5), (0.5, 0.5)]
+    pieces = [clip_mesh_to_tile(mesh, c, 0.5) for c in centers]
+    assert np.isclose(sum(_mesh_area(p) for p in pieces), total, rtol=1e-6)
